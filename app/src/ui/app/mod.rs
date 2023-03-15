@@ -17,8 +17,8 @@ impl Default for PaperApp {
 impl PaperApp {
     pub fn new() -> Self {
         glib::Object::builder()
-            .property("application-id", &"io.mxnluz.Paper")
-            .property("flags", &gio::ApplicationFlags::empty())
+            .property("application-id", "io.mxnluz.Paper")
+            .property("flags", gio::ApplicationFlags::empty())
             .build()
     }
 }
