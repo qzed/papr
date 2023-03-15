@@ -14,6 +14,14 @@ use gtk::{
 };
 use nalgebra::{vector, Vector2};
 
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Margin {
+    pub left: f64,
+    pub right: f64,
+    pub top: f64,
+    pub bottom: f64,
+}
+
 pub struct CanvasWidget {
     hscroll_policy: Cell<ScrollablePolicy>,
     vscroll_policy: Cell<ScrollablePolicy>,
@@ -21,9 +29,12 @@ pub struct CanvasWidget {
     vadjustment: RefCell<Option<Adjustment>>,
     hadjustment_handler: Cell<Option<glib::SignalHandlerId>>,
     vadjustment_handler: Cell<Option<glib::SignalHandlerId>>,
+
+    margin: RefCell<Margin>,
+
     offset: RefCell<Vector2<f64>>,
     scale: Cell<f64>,
-    margin: Vector2<f64>,
+
     actual: RefCell<Canvas>,
 }
 
@@ -36,9 +47,17 @@ impl CanvasWidget {
             vadjustment: RefCell::new(None),
             hadjustment_handler: Cell::new(None),
             vadjustment_handler: Cell::new(None),
+
+            margin: RefCell::new(Margin {
+                left: 50.0,
+                right: 50.0,
+                top: 100.0,
+                bottom: 100.0,
+            }),
+
             offset: RefCell::new(vector![0.0, 0.0]),
             scale: Cell::new(1.0),
-            margin: vector![50.0, 100.0],
+
             actual: RefCell::new(Canvas {
                 bounds: Aabb {
                     x_min: 0.0,
@@ -78,6 +97,10 @@ impl ObjectImpl for CanvasWidget {
                 glib::ParamSpecOverride::for_interface::<gtk::Scrollable>("vscroll-policy"),
                 glib::ParamSpecOverride::for_interface::<gtk::Scrollable>("hadjustment"),
                 glib::ParamSpecOverride::for_interface::<gtk::Scrollable>("vadjustment"),
+                glib::ParamSpecDouble::builder("margin-left").build(),
+                glib::ParamSpecDouble::builder("margin-right").build(),
+                glib::ParamSpecDouble::builder("margin-top").build(),
+                glib::ParamSpecDouble::builder("margin-bottom").build(),
                 glib::ParamSpecDouble::builder("offset-x").build(),
                 glib::ParamSpecDouble::builder("offset-y").build(),
                 glib::ParamSpecDouble::builder("scale").build(),
@@ -163,12 +186,44 @@ impl ObjectImpl for CanvasWidget {
                 obj.queue_allocate();
                 obj.notify_by_pspec(pspec);
             }
+            "margin-left" => {
+                self.margin.borrow_mut().left = value.get().unwrap();
+
+                // request an update
+                let obj = self.obj();
+                obj.queue_resize();
+                obj.notify_by_pspec(pspec);
+            }
+            "margin-right" => {
+                self.margin.borrow_mut().right = value.get().unwrap();
+
+                // request an update
+                let obj = self.obj();
+                obj.queue_resize();
+                obj.notify_by_pspec(pspec);
+            }
+            "margin-top" => {
+                self.margin.borrow_mut().top = value.get().unwrap();
+
+                // request an update
+                let obj = self.obj();
+                obj.queue_resize();
+                obj.notify_by_pspec(pspec);
+            }
+            "margin-bottom" => {
+                self.margin.borrow_mut().bottom = value.get().unwrap();
+
+                // request an update
+                let obj = self.obj();
+                obj.queue_resize();
+                obj.notify_by_pspec(pspec);
+            }
             "offset-x" => {
                 self.offset.borrow_mut().x = value.get().unwrap();
 
                 // request an update
                 let obj = self.obj();
-                obj.queue_resize();
+                obj.queue_allocate();
                 obj.notify_by_pspec(pspec);
             }
             "offset-y" => {
@@ -176,7 +231,7 @@ impl ObjectImpl for CanvasWidget {
 
                 // request an update
                 let obj = self.obj();
-                obj.queue_resize();
+                obj.queue_allocate();
                 obj.notify_by_pspec(pspec);
             }
             "scale" => {
@@ -197,6 +252,10 @@ impl ObjectImpl for CanvasWidget {
             "vscroll-policy" => self.vscroll_policy.get().to_value(),
             "hadjustment" => self.hadjustment.borrow().to_value(),
             "vadjustment" => self.vadjustment.borrow().to_value(),
+            "margin-left" => self.margin.borrow().left.to_value(),
+            "margin-right" => self.margin.borrow().right.to_value(),
+            "margin-top" => self.margin.borrow().top.to_value(),
+            "margin-bottom" => self.margin.borrow().bottom.to_value(),
             "offset-x" => self.offset.borrow().x.to_value(),
             "offset-y" => self.offset.borrow().y.to_value(),
             "scale" => self.scale.get().to_value(),
@@ -212,10 +271,14 @@ impl WidgetImpl for CanvasWidget {
 
     fn measure(&self, orientation: gtk::Orientation, _for_size: i32) -> (i32, i32, i32, i32) {
         let bounds = self.actual.borrow().bounds;
+        let margin = self.margin.borrow();
+
+        let margin_lower = vector![margin.left, margin.top];
+        let margin_upper = vector![margin.right, margin.bottom];
 
         let scale = self.scale.get();
         let canvas_size = vector![bounds.x_max - bounds.x_min, bounds.y_max - bounds.y_min];
-        let natural_size = canvas_size * scale + 2.0 * self.margin;
+        let natural_size = canvas_size * scale + margin_lower + margin_upper;
 
         match orientation {
             gtk::Orientation::Horizontal => (0, natural_size.x.ceil() as _, -1, -1),
@@ -255,8 +318,12 @@ impl WidgetImpl for CanvasWidget {
         let bounds_min = vector![canvas.bounds.x_min, canvas.bounds.y_min];
         let bounds_max = vector![canvas.bounds.x_max, canvas.bounds.y_max];
 
-        let mut lower = bounds_min * scale - self.margin;
-        let mut upper = bounds_max * scale + self.margin;
+        let margin = self.margin.borrow();
+        let margin_lower = vector![margin.left, margin.top];
+        let margin_upper = vector![margin.right, margin.bottom];
+
+        let mut lower = bounds_min * scale - margin_lower;
+        let mut upper = bounds_max * scale + margin_upper;
 
         let offset = *self.offset.borrow();
         let mut offset = vector![
