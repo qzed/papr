@@ -1,0 +1,3 @@
+[submodule "pdfium"]
+	path = pdfium
+	url = https://github.com/ajrcarey/pdfium-render

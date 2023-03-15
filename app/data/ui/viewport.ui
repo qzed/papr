@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<interface>
+  <template class="Viewport" parent="GtkWidget">
+    <child>
+      <object class="GtkScrolledWindow" id="scroller">
+        <property name="propagate-natural-width">false</property>
+        <property name="propagate-natural-height">false</property>
+        <property name="halign">fill</property>
+        <property name="valign">fill</property>
+        <property name="hexpand">true</property>
+        <property name="vexpand">true</property>
+      </object>
+    </child>
+  </template>
+</interface>

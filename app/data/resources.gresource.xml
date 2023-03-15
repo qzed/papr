@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gresources>
+  <gresource prefix="/io/mxnluz/paper/">
+    <file compressed="true" preprocess="xml-stripblanks">ui/appwindow.ui</file>
+    <file compressed="true" preprocess="xml-stripblanks">ui/viewport.ui</file>
+  </gresource>
+</gresources>
