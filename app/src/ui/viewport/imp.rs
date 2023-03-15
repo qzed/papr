@@ -41,30 +41,30 @@ impl ViewportWidget {
         self.scroller.get()
     }
 
-    fn canvas_offset(&self) -> Option<Vector2<f64>> {
+    pub fn canvas_offset(&self) -> Option<Vector2<f64>> {
         self.scroller
             .child()
             .map(|c| vector![c.property("offset-x"), c.property("offset-y")])
     }
 
-    fn set_canvas_offset(&self, offset: Vector2<f64>) {
+    pub fn set_canvas_offset(&self, offset: Vector2<f64>) {
         if let Some(child) = self.scroller.child() {
             child.set_property("offset-x", offset.x);
             child.set_property("offset-y", offset.y);
         }
     }
 
-    fn canvas_scale(&self) -> Option<f64> {
+    pub fn canvas_scale(&self) -> Option<f64> {
         self.scroller.child().map(|c| c.property("scale"))
     }
 
-    fn set_canvas_scale(&self, scale: f64) {
+    pub fn set_canvas_scale(&self, scale: f64) {
         if let Some(child) = self.scroller.child() {
             child.set_property("scale", scale);
         }
     }
 
-    fn set_canvas_offset_and_scale(&self, offset: Vector2<f64>, scale: f64) {
+    pub fn set_canvas_offset_and_scale(&self, offset: Vector2<f64>, scale: f64) {
         if let Some(child) = self.scroller.child() {
             child.set_property("offset-x", offset.x);
             child.set_property("offset-y", offset.y);
