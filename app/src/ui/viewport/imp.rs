@@ -20,6 +20,8 @@ use gtk::{
 };
 use nalgebra::{vector, Vector2};
 
+use crate::types::{Margin, Aabb};
+
 #[derive(Debug, CompositeTemplate)]
 #[template(resource = "/io/mxnluz/paper/ui/viewport.ui")]
 pub struct ViewportWidget {
@@ -70,6 +72,46 @@ impl ViewportWidget {
             child.set_property("offset-y", offset.y);
             child.set_property("scale", scale);
         }
+    }
+
+    pub fn canvas_margin(&self) -> Option<Margin> {
+        self.scroller.child().map(|c|
+            Margin {
+                left: c.property("margin-left"),
+                right: c.property("margin-right"),
+                top: c.property("margin-top"),
+                bottom: c.property("margin-bottom"),
+            }
+        )
+    }
+
+    pub fn canvas_bounds(&self) -> Option<Aabb> {
+        self.scroller.child().map(|c|
+            Aabb {
+                x_min: c.property("bounds-x-min"),
+                x_max: c.property("bounds-x-max"),
+                y_min: c.property("bounds-y-min"),
+                y_max: c.property("bounds-y-max"),
+            }
+        )
+    }
+
+    pub fn canvas_fit_width(&self) {
+        if self.scroller.child().is_none() {
+            return;
+        }
+
+        let mut offset = self.canvas_offset().unwrap();
+        let margin = self.canvas_margin().unwrap();
+        let bounds = self.canvas_bounds().unwrap();
+
+        let canvas_width = bounds.x_max - bounds.x_min;
+        let viewport_width = self.scroller.width() as f64 - margin.left - margin.right;
+        let scale = viewport_width / canvas_width;
+
+        offset.x = bounds.x_min - margin.left;
+
+        self.set_canvas_offset_and_scale(offset, scale);
     }
 }
 
