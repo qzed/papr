@@ -63,6 +63,14 @@ impl ViewportWidget {
             child.set_property("scale", scale);
         }
     }
+
+    fn set_canvas_offset_and_scale(&self, offset: Vector2<f64>, scale: f64) {
+        if let Some(child) = self.scroller.child() {
+            child.set_property("offset-x", offset.x);
+            child.set_property("offset-y", offset.y);
+            child.set_property("scale", scale);
+        }
+    }
 }
 
 impl Default for ViewportWidget {
@@ -175,8 +183,7 @@ impl ObjectImpl for ViewportWidget {
                         let offset = fixp_doc * scale - fixp_screen;
 
                         // update properties
-                        vp.set_canvas_scale(scale);
-                        vp.set_canvas_offset(offset);
+                        vp.set_canvas_offset_and_scale(offset, scale);
 
                         Inhibit(true)
                     } else {
@@ -261,9 +268,7 @@ impl ObjectImpl for ViewportWidget {
                     let offset = fixpoint.get() * scale - center;
 
                     // set properties
-                    let vp = obj.imp();
-                    vp.set_canvas_scale(scale);
-                    vp.set_canvas_offset(offset);
+                    vp.set_canvas_offset_and_scale(offset, scale);
                 }
             ));
 
