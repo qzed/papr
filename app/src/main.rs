@@ -1,5 +1,6 @@
 use gtk::{glib, prelude::ApplicationExtManual};
 
+mod types;
 mod ui;
 
 fn main() -> glib::ExitCode {
