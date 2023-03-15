@@ -3,7 +3,7 @@ use std::cell::{Cell, RefCell};
 use gtk::{
     glib::{self, once_cell::sync::Lazy, ParamSpec, Value},
     graphene,
-    prelude::{ObjectExt, ToValue},
+    prelude::{ObjectExt, ParamSpecBuilderExt, ToValue},
     subclass::{
         prelude::{ObjectImpl, ObjectSubclass, ObjectSubclassExt, ObjectSubclassIsExt},
         scrollable::ScrollableImpl,
@@ -14,12 +14,44 @@ use gtk::{
 };
 use nalgebra::{vector, Vector2};
 
+#[derive(Debug, Clone, Copy)]
+pub struct Aabb {
+    pub x_min: f64,
+    pub y_min: f64,
+    pub x_max: f64,
+    pub y_max: f64,
+}
+
+impl From<Aabb> for graphene::Rect {
+    fn from(b: Aabb) -> Self {
+        graphene::Rect::new(
+            b.x_min as _,
+            b.y_min as _,
+            (b.x_max - b.x_min) as _,
+            (b.y_max - b.y_min) as _,
+        )
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Margin {
     pub left: f64,
     pub right: f64,
     pub top: f64,
     pub bottom: f64,
+}
+
+#[derive(Debug)]
+struct Viewport {
+    size: Vector2<f64>,
+    offset: Vector2<f64>,
+    scale: f64,
+}
+
+#[derive(Debug)]
+struct Canvas {
+    bounds: Aabb,
+    viewport: Viewport,
 }
 
 pub struct CanvasWidget {
@@ -30,16 +62,34 @@ pub struct CanvasWidget {
     hadjustment_handler: Cell<Option<glib::SignalHandlerId>>,
     vadjustment_handler: Cell<Option<glib::SignalHandlerId>>,
 
+    // r/w properties
     margin: RefCell<Margin>,
-
     offset: RefCell<Vector2<f64>>,
     scale: Cell<f64>,
 
+    // render-state
     actual: RefCell<Canvas>,
 }
 
 impl CanvasWidget {
     fn new() -> Self {
+        let bounds = Aabb {
+            x_min: 0.0,
+            y_min: 0.0,
+            x_max: 1000.0,
+            y_max: 1500.0,
+        };
+
+        let margin = Margin {
+            left: 50.0,
+            right: 50.0,
+            top: 100.0,
+            bottom: 100.0,
+        };
+
+        let offset = vector![0.0, 0.0];
+        let scale = 1.0;
+
         Self {
             hscroll_policy: Cell::new(ScrollablePolicy::Minimum),
             vscroll_policy: Cell::new(ScrollablePolicy::Minimum),
@@ -48,27 +98,16 @@ impl CanvasWidget {
             hadjustment_handler: Cell::new(None),
             vadjustment_handler: Cell::new(None),
 
-            margin: RefCell::new(Margin {
-                left: 50.0,
-                right: 50.0,
-                top: 100.0,
-                bottom: 100.0,
-            }),
-
-            offset: RefCell::new(vector![0.0, 0.0]),
-            scale: Cell::new(1.0),
+            margin: RefCell::new(margin),
+            offset: RefCell::new(offset),
+            scale: Cell::new(scale),
 
             actual: RefCell::new(Canvas {
-                bounds: Aabb {
-                    x_min: 0.0,
-                    y_min: 0.0,
-                    x_max: 1000.0,
-                    y_max: 2000.0,
-                },
+                bounds,
                 viewport: Viewport {
-                    offset: vector![0.0, 0.0],
                     size: vector![600.0, 800.0],
-                    scale: 1.0,
+                    offset,
+                    scale,
                 },
             }),
         }
@@ -97,6 +136,18 @@ impl ObjectImpl for CanvasWidget {
                 glib::ParamSpecOverride::for_interface::<gtk::Scrollable>("vscroll-policy"),
                 glib::ParamSpecOverride::for_interface::<gtk::Scrollable>("hadjustment"),
                 glib::ParamSpecOverride::for_interface::<gtk::Scrollable>("vadjustment"),
+                glib::ParamSpecDouble::builder("bounds-x-min")
+                    .read_only()
+                    .build(),
+                glib::ParamSpecDouble::builder("bounds-x-max")
+                    .read_only()
+                    .build(),
+                glib::ParamSpecDouble::builder("bounds-y-min")
+                    .read_only()
+                    .build(),
+                glib::ParamSpecDouble::builder("bounds-y-max")
+                    .read_only()
+                    .build(),
                 glib::ParamSpecDouble::builder("margin-left").build(),
                 glib::ParamSpecDouble::builder("margin-right").build(),
                 glib::ParamSpecDouble::builder("margin-top").build(),
@@ -252,6 +303,10 @@ impl ObjectImpl for CanvasWidget {
             "vscroll-policy" => self.vscroll_policy.get().to_value(),
             "hadjustment" => self.hadjustment.borrow().to_value(),
             "vadjustment" => self.vadjustment.borrow().to_value(),
+            "bounds-x-min" => self.actual.borrow().bounds.x_min.to_value(),
+            "bounds-x-max" => self.actual.borrow().bounds.x_max.to_value(),
+            "bounds-y-min" => self.actual.borrow().bounds.y_min.to_value(),
+            "bounds-y-max" => self.actual.borrow().bounds.y_max.to_value(),
             "margin-left" => self.margin.borrow().left.to_value(),
             "margin-right" => self.margin.borrow().right.to_value(),
             "margin-top" => self.margin.borrow().top.to_value(),
@@ -395,38 +450,6 @@ impl WidgetImpl for CanvasWidget {
 }
 
 impl ScrollableImpl for CanvasWidget {}
-
-#[derive(Debug, Clone, Copy)]
-struct Aabb {
-    x_min: f64,
-    y_min: f64,
-    x_max: f64,
-    y_max: f64,
-}
-
-impl From<Aabb> for graphene::Rect {
-    fn from(b: Aabb) -> Self {
-        graphene::Rect::new(
-            b.x_min as _,
-            b.y_min as _,
-            (b.x_max - b.x_min) as _,
-            (b.y_max - b.y_min) as _,
-        )
-    }
-}
-
-#[derive(Debug)]
-struct Viewport {
-    offset: Vector2<f64>,
-    size: Vector2<f64>,
-    scale: f64,
-}
-
-#[derive(Debug)]
-struct Canvas {
-    bounds: Aabb,
-    viewport: Viewport,
-}
 
 impl Canvas {
     fn render(&self, snapshot: &gtk::Snapshot) {
