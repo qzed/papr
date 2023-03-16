@@ -1,7 +1,7 @@
 [package]
 name = "pdfium-sys"
 version = "0.1.0"       # chromium/5541
-authors = ["Maximilian Luz <luzmaximilian@gmail.com>"]
+authors = ["Maximilian Luz <m@mxnluz.io>"]
 edition = "2018"
 
 [features]
