@@ -18,7 +18,7 @@ struct LibraryGuard {
 }
 
 impl Library {
-    pub fn load_with_bindings(bindings: Bindings, config: &Config) -> Result<Library> {
+    pub fn init_with_bindings(bindings: Bindings, config: &Config) -> Result<Library> {
         // convert user font paths to null-terminated array of C-string pointers
         let paths = config
             .user_font_paths
@@ -67,12 +67,12 @@ impl Library {
         Ok(lib)
     }
 
-    pub fn load_with_config(config: &Config) -> Result<Library> {
-        Self::load_with_bindings(Bindings::load()?, config)
+    pub fn init_with_config(config: &Config) -> Result<Library> {
+        Self::init_with_bindings(Bindings::load()?, config)
     }
 
-    pub fn load() -> Result<Library> {
-        Self::load_with_config(&Config::default())
+    pub fn init() -> Result<Library> {
+        Self::init_with_config(&Config::default())
     }
 
     pub fn ftable(&self) -> &FnTable {
@@ -112,6 +112,6 @@ mod test {
 
     #[test]
     fn test_init() {
-        let _lib = Library::load().unwrap();
+        let _lib = Library::init().unwrap();
     }
 }
