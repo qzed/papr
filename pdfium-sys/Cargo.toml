@@ -5,6 +5,8 @@ authors = ["Maximilian Luz <luzmaximilian@gmail.com>"]
 edition = "2018"
 
 [features]
+default = ["dylib-require-all"]
+dylib-require-all = []
 skia = []
 v8 = []
 xfa = ["v8"]

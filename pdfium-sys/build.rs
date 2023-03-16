@@ -20,7 +20,7 @@ fn main() {
         .header("wrapper.h")
         .parse_callbacks(Box::new(bindgen::CargoCallbacks))
         .dynamic_library_name("libpdfium")
-        .dynamic_link_require_all(true);
+        .dynamic_link_require_all(cfg!(feature = "dylib-require-all"));
 
     for d in defines {
         builder = builder.clang_arg(format!("-D{d}"));
