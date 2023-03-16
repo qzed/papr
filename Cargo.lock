@@ -726,6 +726,7 @@ version = "0.1.0"
 dependencies = [
  "libloading",
  "pdfium-sys",
+ "thiserror",
 ]
 
 [[package]]

@@ -1,6 +1,9 @@
 mod bindings;
 pub use bindings::{Bindings, FnTable};
 
+mod error;
+pub use error::{Error, ErrorCode, Result};
+
 #[cfg(test)]
 mod test {
     use super::*;
