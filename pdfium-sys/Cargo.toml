@@ -4,6 +4,11 @@ version = "0.1.0"       # chromium/5541
 authors = ["Maximilian Luz <luzmaximilian@gmail.com>"]
 edition = "2018"
 
+[features]
+skia = []
+v8 = []
+xfa = ["v8"]
+
 [build-dependencies]
 bindgen = "0.64.0"
 

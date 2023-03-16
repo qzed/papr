@@ -1,4 +1,3 @@
-#define PDF_ENABLE_XFA
 #include "include/pdfium/public/fpdf_annot.h"
 #include "include/pdfium/public/fpdf_attachment.h"
 #include "include/pdfium/public/fpdf_catalog.h"
@@ -21,3 +20,13 @@
 #include "include/pdfium/public/fpdf_thumbnail.h"
 #include "include/pdfium/public/fpdf_transformpage.h"
 #include "include/pdfium/public/fpdfview.h"
+
+// Some errors might only be defined with specific features enabled, but
+// bindings may need all of them, so define them here.
+#ifndef FPDF_ERR_XFALOAD
+#define FPDF_ERR_XFALOAD 7    // Load XFA error.
+#endif
+
+#ifndef FPDF_ERR_XFALAYOUT
+#define FPDF_ERR_XFALAYOUT 8  // Layout XFA error.
+#endif
