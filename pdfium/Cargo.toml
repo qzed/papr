@@ -1,0 +1,8 @@
+[package]
+name = "pdfium"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+libloading = "0.7.4"
+pdfium-sys = { path = "../pdfium-sys" }
