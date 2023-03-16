@@ -1,3 +1,4 @@
+#define PDF_ENABLE_XFA
 #include "include/pdfium/public/fpdf_annot.h"
 #include "include/pdfium/public/fpdf_attachment.h"
 #include "include/pdfium/public/fpdf_catalog.h"
