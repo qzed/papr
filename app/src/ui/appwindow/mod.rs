@@ -1,4 +1,4 @@
-use gtk::{gio, glib};
+use gtk::{gio, glib, prelude::FileExt};
 
 mod imp;
 
@@ -12,5 +12,16 @@ glib::wrapper! {
 impl AppWindow {
     pub fn new(app: &adw::Application) -> Self {
         glib::Object::builder().property("application", app).build()
+    }
+
+    pub fn open_file(&self, file: gio::File) {
+        glib::MainContext::default().spawn_local(async move {
+            // TODO: handle errors
+            let (data, _etag) = file.load_bytes_future().await.expect("failed to load file");
+            let data = data.to_vec();
+
+            // TODO
+            println!("{:?}", data.len());
+        });
     }
 }

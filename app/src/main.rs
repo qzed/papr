@@ -4,6 +4,6 @@ mod types;
 mod ui;
 
 fn main() -> glib::ExitCode {
-    let app = ui::app::PaperApp::new();
+    let app = ui::app::App::new();
     app.run()
 }
