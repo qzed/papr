@@ -1,6 +1,13 @@
-use crate::{Bindings, Error, ErrorCode, FnTable, Result};
-use std::path::PathBuf;
-use std::{ffi::CString, path::Path, rc::Rc};
+use crate::bindings::{Bindings, FnTable};
+use crate::document::DocumentBacking;
+use crate::{Document, Error, ErrorCode, Result};
+
+use std::ffi::{c_void, CString};
+use std::fs::File;
+use std::io::{Read, Seek};
+use std::path::{Path, PathBuf};
+use std::ptr::NonNull;
+use std::rc::Rc;
 
 #[derive(Debug, Default, Clone)]
 pub struct Config {
@@ -79,9 +86,99 @@ impl Library {
         &self.inner.ftable
     }
 
-    fn assert_status(&self) -> std::result::Result<(), ErrorCode> {
+    pub(crate) fn assert_status(&self) -> std::result::Result<(), ErrorCode> {
         let err = unsafe { self.ftable().FPDF_GetLastError() };
         crate::error::error_code_to_result(err)
+    }
+
+    pub(crate) fn assert_ptr<T>(&self, ptr: *mut T) -> Result<NonNull<T>> {
+        match NonNull::new(ptr) {
+            Some(ptr) => Ok(ptr),
+            None => {
+                self.assert_status()?;
+                Err(ErrorCode::Unknown.into())
+            }
+        }
+    }
+
+    pub fn load_file<P>(&self, path: P, password: Option<&str>) -> Result<Document>
+    where
+        P: AsRef<Path>,
+    {
+        // Note: we go via a reader here because otherwise we'd have to convert
+        // paths to C-strings... which works fine on UNIX type systems but not
+        // so much on Windows.
+        let file = File::open(path)?;
+        self.load_reader(file, password)
+    }
+
+    pub fn load_reader<R>(&self, reader: R, password: Option<&str>) -> Result<Document>
+    where
+        R: Read + Seek + 'static,
+    {
+        // convert password to null-terminated C-string
+        let password = password
+            .map(CString::new)
+            .transpose()
+            .map_err(|_| Error::InvalidEncoding)?;
+
+        let password = password
+            .as_ref()
+            .map(|p| p.as_ptr() as *const i8)
+            .unwrap_or(std::ptr::null());
+
+        // build custom file access
+        let mut access = crate::fileaccess::ReaderAccess::from_reader(reader)?;
+
+        // load document
+        let handle = unsafe {
+            self.ftable()
+                .FPDF_LoadCustomDocument(access.sys_ptr(), password)
+        };
+        let handle = self.assert_ptr(handle)?;
+
+        // FIXME: From pdfium docs:
+        //   If PDFium is built with the XFA module, the application should
+        //   call FPDF_LoadXFA() function after the PDF document loaded to
+        //   support XFA fields defined in the fpdfformfill.h file.
+
+        // set up our structs
+        let backing = DocumentBacking::Reader { access };
+        let document = Document::new(self.clone(), handle, backing);
+        Ok(document)
+    }
+
+    pub fn load_buffer(&self, buffer: Vec<u8>, password: Option<&str>) -> Result<Document> {
+        // convert password to null-terminated C-string
+        let password = password
+            .map(CString::new)
+            .transpose()
+            .map_err(|_| Error::InvalidEncoding)?;
+
+        let password = password
+            .as_ref()
+            .map(|p| p.as_ptr() as *const i8)
+            .unwrap_or(std::ptr::null());
+
+        // load document
+        let handle = unsafe {
+            self.ftable().FPDF_LoadMemDocument64(
+                buffer.as_ptr() as *const c_void,
+                buffer.len(),
+                password,
+            )
+        };
+        let handle = self.assert_ptr(handle)?;
+
+        // FIXME: From pdfium docs:
+        //   If PDFium is built with the XFA module, the application should
+        //   call FPDF_LoadXFA() function after the PDF document loaded to
+        //   support XFA fields defined in the fpdfformfill.h file.
+
+        // set up our structs
+        let backing = DocumentBacking::Buffer { buffer };
+        let document = Document::new(self.clone(), handle, backing);
+        Ok(document)
     }
 }
 

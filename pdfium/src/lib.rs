@@ -1,15 +1,21 @@
 mod bindings;
-pub use bindings::{Bindings, FnTable};
-
+mod document;
 mod error;
-pub use error::{Error, ErrorCode, Result};
-
+mod fileaccess;
 mod library;
-pub use library::{Library, Config};
+
+pub use document::Document;
+pub use error::{Error, ErrorCode, Result};
+pub use library::{Config, Library};
+
+pub mod lowlevel {
+    pub use crate::bindings::{Bindings, FnTable};
+    pub use crate::document::DocumentHandle;
+}
 
 #[cfg(test)]
 mod test {
-    use super::*;
+    use super::lowlevel::Bindings;
 
     #[test]
     fn test_libpdfium_available() {

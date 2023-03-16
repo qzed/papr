@@ -10,6 +10,9 @@ pub enum Error {
     #[error("Error accessing shared library")]
     LibraryError(#[from] libloading::Error),
 
+    #[error("I/O error")]
+    IoError(#[from] std::io::Error),
+
     #[error(transparent)]
     ErrorCode(#[from] ErrorCode),
 }
