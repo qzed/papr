@@ -28,4 +28,8 @@ impl Bindings {
         let library = Bindings { ftable };
         Ok(library)
     }
+
+    pub fn ftable(&self) -> &FnTable {
+        &self.ftable
+    }
 }
