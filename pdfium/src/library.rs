@@ -86,9 +86,10 @@ impl Library {
         &self.inner.ftable
     }
 
-    pub(crate) fn assert_status(&self) -> std::result::Result<(), ErrorCode> {
+    pub(crate) fn assert_status(&self) -> Result<()> {
         let err = unsafe { self.ftable().FPDF_GetLastError() };
-        crate::error::error_code_to_result(err)
+        crate::error::error_code_to_result(err)?;
+        Ok(())
     }
 
     pub(crate) fn assert_ptr<T>(&self, ptr: *mut T) -> Result<NonNull<T>> {

@@ -1,6 +1,6 @@
 use std::ptr::NonNull;
 
-use crate::{fileaccess::ReaderAccess, Library};
+use crate::{fileaccess::ReaderAccess, Library, Version};
 
 pub type DocumentHandle = NonNull<pdfium_sys::fpdf_document_t__>;
 
@@ -25,6 +25,24 @@ impl Document {
 
     pub fn handle(&self) -> DocumentHandle {
         self.handle
+    }
+
+    pub fn version(&self) -> Version {
+        let mut version: i32 = 0;
+
+        let success = unsafe {
+            self.lib
+                .ftable()
+                .FPDF_GetFileVersion(self.handle.as_ptr(), &mut version)
+        };
+
+        // if this fails, the document was created with pdfium, but the version
+        // has not been set yet
+        if success != 0 {
+            Version::from_i32(version)
+        } else {
+            Version::Unset
+        }
     }
 }
 
