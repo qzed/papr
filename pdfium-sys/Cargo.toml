@@ -1,0 +1,11 @@
+[package]
+name = "pdfium-sys"
+version = "0.1.0"
+authors = ["Maximilian Luz <luzmaximilian@gmail.com>"]
+edition = "2018"
+
+[build-dependencies]
+bindgen = "0.64.0"
+
+[dependencies]
+libloading = "0.7.4"
