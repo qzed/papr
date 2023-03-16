@@ -4,8 +4,6 @@ name = "paper"
 version = "0.1.0"
 
 [dependencies]
-anyhow = "1.0.69"
-
 adw = {version = "0.3.1", package = "libadwaita", features = ["v1_2"]}
 gtk = {version = "0.6.2", package = "gtk4", features = ["xml_validation", "v4_8"]}
 nalgebra = "0.32.2"
