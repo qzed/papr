@@ -1,3 +1,4 @@
+use std::ffi::c_void;
 use std::ptr::NonNull;
 use std::rc::Rc;
 
@@ -30,6 +31,38 @@ impl<'a> Pages<'a> {
         // should we load and chache it here?
 
         Ok(page)
+    }
+
+    pub fn get_label(&self, index: u32) -> Result<Option<String>> {
+        let doc = self.doc.handle().as_ptr();
+
+        // get length, including trailing zeros
+        let len = unsafe {
+            self.lib
+                .ftable()
+                .FPDF_GetPageLabel(doc, index as _, std::ptr::null_mut(), 0)
+        };
+
+        // zero-length: return empty string
+        if len <= 0 {
+            return Ok(None);
+        }
+
+        // get actual string as bytes
+        let mut buffer: Vec<u8> = vec![0; len as usize];
+        let buffer_p = buffer.as_mut_ptr() as *mut c_void;
+
+        let res = unsafe {
+            self.lib
+                .ftable()
+                .FPDF_GetPageLabel(doc, index as _, buffer_p, buffer.len() as _)
+        };
+
+        assert_eq!(res, len);
+
+        // convert bytes to string
+        let value = crate::utils::utf16le_from_bytes(&buffer)?;
+        Ok(Some(value))
     }
 }
 
