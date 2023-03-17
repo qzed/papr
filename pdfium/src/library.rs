@@ -102,6 +102,15 @@ impl Library {
         }
     }
 
+    pub(crate) fn assert(&self, condition: bool) -> Result<()> {
+        if condition {
+            Ok(())
+        } else {
+            self.assert_status()?;
+            Err(ErrorCode::Unknown.into())
+        }
+    }
+
     pub fn load_file<P>(&self, path: P, password: Option<&str>) -> Result<Document>
     where
         P: AsRef<Path>,
