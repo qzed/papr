@@ -14,22 +14,17 @@ impl<'a> Pages<'a> {
     }
 
     pub fn count(&self) -> u32 {
-        unsafe {
-            self.lib
-                .ftable()
-                .FPDF_GetPageCount(self.doc.handle().as_ptr()) as u32
-        }
+        let doc = self.doc.handle().as_ptr();
+        unsafe { self.lib.ftable().FPDF_GetPageCount(doc) as u32 }
     }
 
     pub fn get(&self, index: u32) -> Result<Page> {
-        let handle = unsafe {
-            self.lib
-                .ftable()
-                .FPDF_LoadPage(self.doc.handle().as_ptr(), index as _)
-        };
-        let handle = self.lib.assert_ptr(handle)?;
+        let doc = self.doc.handle().as_ptr();
 
-        let page = Page::new(self.lib.clone(), self.doc.clone(), handle);
+        let page = unsafe { self.lib.ftable().FPDF_LoadPage(doc, index as _) };
+        let page = self.lib.assert_ptr(page)?;
+
+        let page = Page::new(self.lib.clone(), self.doc.clone(), page);
 
         // TODO: FPDF_GetPageLabel depends on page index... which might change,
         // should we load and chache it here?

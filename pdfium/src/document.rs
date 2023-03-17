@@ -46,12 +46,13 @@ impl Document {
     }
 
     pub fn version(&self) -> Version {
-        let mut version: i32 = 0;
+        let lib = self.handle().as_ptr();
 
+        let mut version: i32 = 0;
         let success = unsafe {
             self.library()
                 .ftable()
-                .FPDF_GetFileVersion(self.handle().as_ptr(), &mut version)
+                .FPDF_GetFileVersion(lib, &mut version)
         };
 
         // if this fails, the document was created with pdfium, but the version
