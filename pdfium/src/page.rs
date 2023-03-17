@@ -99,6 +99,22 @@ impl Page {
     pub fn library(&self) -> &Library {
         &self.inner.lib
     }
+
+    pub fn width(&self) -> f32 {
+        unsafe {
+            self.library()
+                .ftable()
+                .FPDF_GetPageWidthF(self.handle().as_ptr())
+        }
+    }
+
+    pub fn height(&self) -> f32 {
+        unsafe {
+            self.library()
+                .ftable()
+                .FPDF_GetPageHeightF(self.handle().as_ptr())
+        }
+    }
 }
 
 impl Drop for PageInner {
