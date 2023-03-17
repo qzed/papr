@@ -116,6 +116,10 @@ impl Page {
         }
     }
 
+    pub fn size(&self) -> (f32, f32) {
+        (self.width(), self.height())
+    }
+
     pub fn bounding_box(&self) -> Result<Rect> {
         let page = self.handle().as_ptr();
 
