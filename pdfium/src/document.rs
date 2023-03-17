@@ -2,8 +2,10 @@ use std::ptr::NonNull;
 use std::rc::Rc;
 
 use crate::fileaccess::ReaderAccess;
-use crate::metadata::Metadata;
 use crate::{Library, Version};
+
+pub use crate::metadata::Metadata;
+pub use crate::page::Pages;
 
 pub type DocumentHandle = NonNull<pdfium_sys::fpdf_document_t__>;
 
@@ -63,6 +65,10 @@ impl Document {
 
     pub fn metadata(&self) -> Metadata {
         Metadata::new(self.library(), &self)
+    }
+
+    pub fn pages(&self) -> Pages {
+        Pages::new(self.library(), &self)
     }
 }
 
