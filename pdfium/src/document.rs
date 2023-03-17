@@ -1,6 +1,6 @@
 use std::ptr::NonNull;
 
-use crate::{fileaccess::ReaderAccess, Library, Version};
+use crate::{fileaccess::ReaderAccess, Library, Metadata, Version};
 
 pub type DocumentHandle = NonNull<pdfium_sys::fpdf_document_t__>;
 
@@ -43,6 +43,10 @@ impl Document {
         } else {
             Version::Unset
         }
+    }
+
+    pub fn metadata(&self) -> Metadata {
+        Metadata::new(&self.lib, &self)
     }
 }
 
