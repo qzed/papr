@@ -115,10 +115,49 @@ impl Page {
                 .FPDF_GetPageHeightF(self.handle().as_ptr())
         }
     }
+
+    pub fn bounding_box(&self) -> Result<Rect> {
+        let page = self.handle().as_ptr();
+
+        let mut rect = pdfium_sys::FS_RECTF {
+            left: 0.0,
+            top: 0.0,
+            right: 0.0,
+            bottom: 0.0,
+        };
+
+        let status = unsafe {
+            self.library()
+                .ftable()
+                .FPDF_GetPageBoundingBox(page, &mut rect)
+        };
+        self.library().assert(status != 0)?;
+
+        Ok(Rect::from(rect))
+    }
 }
 
 impl Drop for PageInner {
     fn drop(&mut self) {
         unsafe { self.lib.ftable().FPDF_ClosePage(self.handle.as_ptr()) };
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Rect {
+    pub left: f32,
+    pub top: f32,
+    pub right: f32,
+    pub bottom: f32,
+}
+
+impl From<pdfium_sys::FS_RECTF> for Rect {
+    fn from(other: pdfium_sys::FS_RECTF) -> Self {
+        Rect {
+            left: other.left,
+            top: other.top,
+            right: other.right,
+            bottom: other.bottom,
+        }
     }
 }
