@@ -1,6 +1,7 @@
-use std::ffi::{c_void, CString};
+use super::Document;
+use crate::{Library, Result};
 
-use crate::{Document, Library, Result};
+use std::ffi::{c_void, CString};
 
 pub struct Metadata<'a> {
     lib: &'a Library,
@@ -47,7 +48,7 @@ impl<'a> Metadata<'a> {
         assert_eq!(res, len);
 
         // convert bytes to string
-        let value = crate::utils::utf16le_from_bytes(&buffer)?;
+        let value = crate::utils::utf16le::from_bytes(&buffer)?;
         Ok(Some(value))
     }
 }

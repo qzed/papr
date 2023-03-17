@@ -1,6 +1,6 @@
 use crate::{Error, Result};
 
-pub fn utf16le_from_bytes(bytes: &[u8]) -> Result<String> {
+pub fn from_bytes(bytes: &[u8]) -> Result<String> {
     if bytes.len() & 1 != 0 {
         return Err(Error::InvalidEncoding);
     }

@@ -1,9 +1,7 @@
-use std::{
-    ffi::{c_int, c_uchar, c_ulong, c_void},
-    io::{Read, Seek, SeekFrom},
-};
-
 use crate::Result;
+
+use std::ffi::{c_int, c_uchar, c_ulong, c_void};
+use std::io::{Read, Seek, SeekFrom};
 
 pub(crate) struct ReaderAccess {
     inner: Box<FileAccessInner>,

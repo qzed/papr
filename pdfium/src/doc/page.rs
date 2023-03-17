@@ -1,8 +1,10 @@
+use crate::doc::Document;
+use crate::types::Rect;
+use crate::{Library, Result};
+
 use std::ffi::c_void;
 use std::ptr::NonNull;
 use std::rc::Rc;
-
-use crate::{Document, Library, Result};
 
 pub struct Pages<'a> {
     lib: &'a Library,
@@ -61,7 +63,7 @@ impl<'a> Pages<'a> {
         assert_eq!(res, len);
 
         // convert bytes to string
-        let value = crate::utils::utf16le_from_bytes(&buffer)?;
+        let value = crate::utils::utf16le::from_bytes(&buffer)?;
         Ok(Some(value))
     }
 }
@@ -144,24 +146,5 @@ impl Page {
 impl Drop for PageInner {
     fn drop(&mut self) {
         unsafe { self.lib.ftable().FPDF_ClosePage(self.handle.as_ptr()) };
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Rect {
-    pub left: f32,
-    pub top: f32,
-    pub right: f32,
-    pub bottom: f32,
-}
-
-impl From<pdfium_sys::FS_RECTF> for Rect {
-    fn from(other: pdfium_sys::FS_RECTF) -> Self {
-        Rect {
-            left: other.left,
-            top: other.top,
-            right: other.right,
-            bottom: other.bottom,
-        }
     }
 }

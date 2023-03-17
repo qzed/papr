@@ -1,6 +1,7 @@
 use crate::bindings::{Bindings, FnTable};
-use crate::document::DocumentBacking;
-use crate::{Document, Error, ErrorCode, Result};
+use crate::doc::{Document, DocumentBacking};
+use crate::io::fileaccess::ReaderAccess;
+use crate::{Error, ErrorCode, Result};
 
 use std::ffi::{c_void, CString};
 use std::fs::File;
@@ -138,7 +139,7 @@ impl Library {
             .unwrap_or(std::ptr::null());
 
         // build custom file access
-        let mut access = crate::fileaccess::ReaderAccess::from_reader(reader)?;
+        let mut access = ReaderAccess::from_reader(reader)?;
 
         // load document
         let handle = unsafe {
