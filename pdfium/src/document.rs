@@ -1,10 +1,18 @@
 use std::ptr::NonNull;
+use std::rc::Rc;
 
-use crate::{fileaccess::ReaderAccess, Library, Metadata, Version};
+use crate::fileaccess::ReaderAccess;
+use crate::metadata::Metadata;
+use crate::{Library, Version};
 
 pub type DocumentHandle = NonNull<pdfium_sys::fpdf_document_t__>;
 
+#[derive(Clone)]
 pub struct Document {
+    inner: Rc<DocumentInner>,
+}
+
+struct DocumentInner {
     lib: Library,
     handle: DocumentHandle,
 
@@ -16,24 +24,32 @@ pub struct Document {
 
 impl Document {
     pub(crate) fn new(lib: Library, handle: DocumentHandle, backing: DocumentBacking) -> Self {
-        Self {
+        let inner = DocumentInner {
             lib,
             handle,
             backing,
+        };
+
+        Self {
+            inner: Rc::new(inner),
         }
     }
 
     pub fn handle(&self) -> DocumentHandle {
-        self.handle
+        self.inner.handle
+    }
+
+    pub fn library(&self) -> &Library {
+        &self.inner.lib
     }
 
     pub fn version(&self) -> Version {
         let mut version: i32 = 0;
 
         let success = unsafe {
-            self.lib
+            self.library()
                 .ftable()
-                .FPDF_GetFileVersion(self.handle.as_ptr(), &mut version)
+                .FPDF_GetFileVersion(self.handle().as_ptr(), &mut version)
         };
 
         // if this fails, the document was created with pdfium, but the version
@@ -46,11 +62,11 @@ impl Document {
     }
 
     pub fn metadata(&self) -> Metadata {
-        Metadata::new(&self.lib, &self)
+        Metadata::new(self.library(), &self)
     }
 }
 
-impl Drop for Document {
+impl Drop for DocumentInner {
     fn drop(&mut self) {
         unsafe { self.lib.ftable().FPDF_CloseDocument(self.handle.as_ptr()) };
     }
