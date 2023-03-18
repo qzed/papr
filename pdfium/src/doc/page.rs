@@ -1,8 +1,9 @@
+use crate::bitmap::Bitmap;
 use crate::doc::Document;
-use crate::types::Rect;
+use crate::types::{Point2, Rect, Vector2};
 use crate::{Library, Result};
 
-use std::ffi::c_void;
+use std::ffi::{c_double, c_int, c_void};
 use std::ptr::NonNull;
 use std::rc::Rc;
 
@@ -141,10 +142,101 @@ impl Page {
 
         Ok(Rect::from(rect))
     }
+
+    pub fn transform_device_to_page(
+        &self,
+        layout: &PageRenderLayout,
+        device: Point2<i32>,
+    ) -> Result<Point2<f32>> {
+        let handle = self.handle().as_ptr();
+
+        let mut page_x: c_double = 0.0;
+        let mut page_y: c_double = 0.0;
+
+        let status = unsafe {
+            self.library().ftable().FPDF_DeviceToPage(
+                handle,
+                layout.start.x,
+                layout.start.y,
+                layout.size.x,
+                layout.size.y,
+                layout.rotate.as_i32(),
+                device.x,
+                device.y,
+                &mut page_x,
+                &mut page_y,
+            )
+        };
+        self.library().assert(status != 0)?;
+
+        Ok(Point2::new(page_x as _, page_y as _))
+    }
+
+    pub fn transform_page_to_device(
+        &self,
+        layout: &PageRenderLayout,
+        page: Point2<f32>,
+    ) -> Result<Point2<i32>> {
+        let handle = self.handle().as_ptr();
+
+        let mut device_x: c_int = 0;
+        let mut device_y: c_int = 0;
+
+        let status = unsafe {
+            self.library().ftable().FPDF_PageToDevice(
+                handle,
+                layout.start.x,
+                layout.start.y,
+                layout.size.x,
+                layout.size.y,
+                layout.rotate.as_i32(),
+                page.x as _,
+                page.y as _,
+                &mut device_x,
+                &mut device_y,
+            )
+        };
+        self.library().assert(status != 0)?;
+
+        Ok(Point2::new(device_x, device_x))
+    }
 }
 
 impl Drop for PageInner {
     fn drop(&mut self) {
         unsafe { self.lib.ftable().FPDF_ClosePage(self.handle.as_ptr()) };
     }
+}
+
+/// Page rotation used for rendering.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum PageRotation {
+    /// Do not rotate.
+    None,
+
+    /// Rotate 90 degrees clockwise.
+    Deg90,
+
+    /// Rotate 180 degrees clockwise.
+    Deg180,
+
+    /// Rotate 270 degrees clockwise.
+    Deg270,
+}
+
+impl PageRotation {
+    fn as_i32(&self) -> i32 {
+        match self {
+            PageRotation::None => 0,
+            PageRotation::Deg90 => 1,
+            PageRotation::Deg180 => 2,
+            PageRotation::Deg270 => 3,
+        }
+    }
+}
+
+pub struct PageRenderLayout {
+    pub start: Point2<i32>,
+    pub size: Vector2<i32>,
+    pub rotate: PageRotation,
 }
