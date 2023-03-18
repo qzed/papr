@@ -292,8 +292,14 @@ impl PageRotation {
     }
 }
 
+/// Descriptor for the page/viewport layout used for rendering.
 pub struct PageRenderLayout {
+    /// Offset of the display/viewport on the page, in pixels.
     pub start: Point2<i32>,
+
+    /// Size of the full page to be rendered, in pixels.
     pub size: Vector2<i32>,
+
+    /// Rotation of the page.
     pub rotate: PageRotation,
 }
