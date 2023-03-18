@@ -1,3 +1,7 @@
+use nalgebra::matrix;
+
+pub use nalgebra::{Affine2, Point2};
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Rect {
     pub left: f32,
@@ -35,12 +39,18 @@ impl From<Rect> for pdfium_sys::FS_RECTF {
 /// - Translation: `[1 0 0 1 tx ty]`
 /// - Scaling: `[sx 0 0 sy 0 0]`
 /// - Rotation: `[cos(q) sin(q) -sin(q) cos(q) 0 0]`
-/// 
+///
 /// Transformations are computed as:
 /// ```txt
 ///                       ⎡a b 0⎤
 /// [x' y' 1] = [x y 1] * ⎢c d 0⎥
 ///                       ⎣e f 1⎦
+/// ```
+/// or
+/// ```txt
+/// ⎡x'⎤   ⎡a c e⎤   ⎡x⎤
+/// ⎢y'⎥ = ⎢b d f⎥ * ⎢y⎥
+/// ⎣1 ⎦   ⎣0 0 1⎦   ⎣1⎦
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Matrix {
@@ -74,6 +84,29 @@ impl From<Matrix> for pdfium_sys::FS_MATRIX {
             d: other.d,
             e: other.e,
             f: other.f,
+        }
+    }
+}
+
+impl From<Matrix> for Affine2<f32> {
+    fn from(m: Matrix) -> Self {
+        Affine2::from_matrix_unchecked(matrix![
+            m.a, m.c, m.e;
+            m.b, m.d, m.f;
+            0.0, 0.0, 1.0;
+        ])
+    }
+}
+
+impl From<Affine2<f32>> for Matrix {
+    fn from(m: Affine2<f32>) -> Self {
+        Matrix {
+            a: m[(0, 0)],
+            b: m[(1, 0)],
+            c: m[(0, 1)],
+            d: m[(1, 1)],
+            e: m[(0, 2)],
+            f: m[(1, 2)],
         }
     }
 }
