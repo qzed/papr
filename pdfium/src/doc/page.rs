@@ -7,6 +7,9 @@ use std::ffi::{c_double, c_int, c_void};
 use std::ptr::NonNull;
 use std::rc::Rc;
 
+use nalgebra::{matrix, vector, Affine2, RealField};
+use simba::scalar::SupersetOf;
+
 pub struct Pages<'a> {
     lib: &'a Library,
     doc: &'a Document,
@@ -199,6 +202,60 @@ impl Page {
         self.library().assert(status != 0)?;
 
         Ok(Point2::new(device_x, device_x))
+    }
+
+    /// Get the display matrix, transforming page coordinates to display/device
+    /// coordinates.
+    pub fn display_transform<T>(
+        &self,
+        start: Point2<T>,
+        size: Vector2<T>,
+        rotate: PageRotation,
+    ) -> Affine2<T>
+    where
+        T: RealField + Copy + SupersetOf<f32>,
+    {
+        let page_size = self.size().cast::<T>();
+
+        let left = start.x;
+        let top = start.y;
+        let right = start.x + size.x;
+        let bottom = start.y + size.y;
+
+        let (v0, v1, v2) = match rotate {
+            PageRotation::None => {
+                let v0 = vector![left, bottom];
+                let v1 = vector![left, top];
+                let v2 = vector![right, bottom];
+                (v0, v1, v2)
+            }
+            PageRotation::Deg90 => {
+                let v0 = vector![left, top];
+                let v1 = vector![right, top];
+                let v2 = vector![left, bottom];
+                (v0, v1, v2)
+            }
+            PageRotation::Deg180 => {
+                let v0 = vector![right, top];
+                let v1 = vector![right, bottom];
+                let v2 = vector![left, top];
+                (v0, v1, v2)
+            }
+            PageRotation::Deg270 => {
+                let v0 = vector![right, bottom];
+                let v1 = vector![left, bottom];
+                let v2 = vector![right, top];
+                (v0, v1, v2)
+            }
+        };
+
+        let m = matrix! {
+            (v2.x - v0.x) / page_size.x, (v1.x - v0.x) / page_size.y, v0.x;
+            (v2.y - v0.y) / page_size.x, (v1.y - v0.y) / page_size.y, v0.y;
+            T::zero(), T::zero(), T::one();
+        };
+
+        Affine2::from_matrix_unchecked(m)
     }
 }
 

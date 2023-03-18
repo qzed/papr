@@ -1,6 +1,6 @@
 use nalgebra::matrix;
 
-pub use nalgebra::{Affine2, Point2};
+pub use nalgebra::{Affine2, Point2, Vector2};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Rect {
