@@ -119,8 +119,8 @@ impl Page {
         }
     }
 
-    pub fn size(&self) -> (f32, f32) {
-        (self.width(), self.height())
+    pub fn size(&self) -> Vector2<f32> {
+        Vector2::new(self.width(), self.height())
     }
 
     pub fn bounding_box(&self) -> Result<Rect> {
