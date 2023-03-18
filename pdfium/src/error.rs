@@ -7,6 +7,9 @@ pub enum Error {
     #[error("Invalid encoding")]
     InvalidEncoding,
 
+    #[error("Invalid argument")]
+    InvalidArgument,
+
     #[error("Error accessing shared library")]
     LibraryError(#[from] libloading::Error),
 

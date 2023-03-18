@@ -3,6 +3,7 @@ mod library;
 
 pub mod bindings;
 pub mod doc;
+pub mod bitmap;
 pub mod types;
 
 pub(crate) mod io;
