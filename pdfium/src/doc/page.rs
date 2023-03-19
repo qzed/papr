@@ -257,6 +257,31 @@ impl Page {
 
         Affine2::from_matrix_unchecked(m)
     }
+
+    /// Render this page to a bitmap, using the specified layout and options.
+    pub fn render<C>(
+        &self,
+        bitmap: &mut Bitmap<C>,
+        layout: &PageRenderLayout,
+        flags: RenderFlags,
+    ) -> Result<()> {
+        let page = self.handle().as_ptr();
+        let bitmap = bitmap.handle().as_ptr();
+
+        unsafe {
+            self.library().ftable().FPDF_RenderPageBitmap(
+                bitmap,
+                page,
+                layout.start.x,
+                layout.start.y,
+                layout.size.x,
+                layout.size.y,
+                layout.rotate.as_i32(),
+                flags.bits() as _,
+            )
+        };
+        self.library().assert_status()
+    }
 }
 
 impl Drop for PageInner {
