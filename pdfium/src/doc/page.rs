@@ -316,7 +316,7 @@ impl Page {
     /// Note that the size of the provided bitmap does not have to be equal to
     /// the the (scaled) page or clip size. This allows rendering only the
     /// parts relevant to the current viewport.
-    /// 
+    ///
     /// Clipping is performed after applying both transforms, meaning that clip
     /// coordinates are given as pixel coordinates in the output image.
     pub fn render_with_transform<C>(
