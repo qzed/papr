@@ -181,6 +181,7 @@ impl BitmapFormat {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Color {
     pub r: u8,
     pub g: u8,
@@ -203,5 +204,24 @@ impl Color {
 
     fn as_u32(&self) -> u32 {
         ((self.a as u32) << 24) | ((self.r as u32) << 16) | ((self.g as u32) << 8) | self.b as u32
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ColorScheme {
+    pub path_fill_color: Color,
+    pub path_stroke_color: Color,
+    pub text_fill_color: Color,
+    pub text_stroke_color: Color,
+}
+
+impl From<ColorScheme> for pdfium_sys::FPDF_COLORSCHEME {
+    fn from(other: ColorScheme) -> Self {
+        pdfium_sys::FPDF_COLORSCHEME {
+            path_fill_color: other.path_fill_color.as_u32() as _,
+            path_stroke_color: other.path_stroke_color.as_u32() as _,
+            text_fill_color: other.text_fill_color.as_u32() as _,
+            text_stroke_color: other.text_stroke_color.as_u32() as _,
+        }
     }
 }
