@@ -189,12 +189,17 @@ pub struct Color {
 }
 
 impl Color {
-    pub const WHITE: Color = Color {
-        r: 255,
-        g: 255,
-        b: 255,
-        a: 255,
-    };
+    pub const TRANSPARENT: Color = Color::new_rgba(0, 0, 0, 0);
+    pub const WHITE: Color = Color::new_rgb(255, 255, 255);
+    pub const BLACK: Color = Color::new_rgb(0, 0, 0);
+
+    pub const fn new_rgb(r: u8, g: u8, b: u8) -> Self {
+        Self { r, g, b, a: 255 }
+    }
+
+    pub const fn new_rgba(r: u8, g: u8, b: u8, a: u8) -> Self {
+        Self { r, g, b, a }
+    }
 
     fn as_u32(&self) -> u32 {
         ((self.a as u32) << 24) | ((self.r as u32) << 16) | ((self.g as u32) << 8) | self.b as u32
