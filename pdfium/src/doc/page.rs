@@ -255,10 +255,15 @@ impl Page {
             T::zero(), T::zero(), T::one();
         };
 
-        Affine2::from_matrix_unchecked(m)
+        nalgebra::try_convert(m).unwrap()
     }
 
     /// Render this page to a bitmap, using the specified layout and options.
+    ///
+    /// Translation, scaling, and rotation (90° steps) can be specified via
+    /// `layout`. Note that the size of the provided bitmap does not have to be
+    /// equal to the the (scaled) page size. This allows rendering only the
+    /// parts relevant to the current viewport.
     pub fn render<C>(
         &self,
         bitmap: &mut Bitmap<C>,
@@ -277,6 +282,61 @@ impl Page {
                 layout.size.x,
                 layout.size.y,
                 layout.rotate.as_i32(),
+                flags.bits() as _,
+            )
+        };
+        self.library().assert_status()
+    }
+
+    /// Render this page to a bitmap, using the specified transformation and options.
+    ///
+    /// The provided matrix is applied to the display-transformed page, i.e., a
+    /// point `a` on the page is transformed to a point `b` on the rendered
+    /// output in the following way:
+    /// ```txt
+    /// b = transform * display_transform * a
+    /// ```
+    /// where `transform` is the provided transform and `display_transform` is
+    /// the default display transform, which can be obtained by calling
+    /// [`Self::display_transform()`] via
+    /// ```no_run
+    /// # use nalgebra::point;
+    /// let display_transform = page.display_transform(
+    ///         point![0.0, 0.0], page.size(), PageRotation::None);
+    /// ```
+    ///
+    /// Note that `display_transform` is a mapping that flips the y-coordinate
+    /// and positions the origin at the top of the page. It essentially
+    /// transfers from the PDF page coordinate system (y goes from bottom to
+    /// top with the origin at the bottom left corner of the page) to the
+    /// standard display coordinate system (y goes from top to bottom with the
+    /// origin at the top left corner of the page). It does not do any scaling
+    /// or rotations.
+    ///
+    /// Note that the size of the provided bitmap does not have to be equal to
+    /// the the (scaled) page or clip size. This allows rendering only the
+    /// parts relevant to the current viewport.
+    /// 
+    /// Clipping is performed after applying both transforms, meaning that clip
+    /// coordinates are given as pixel coordinates in the output image.
+    pub fn render_with_transform<C>(
+        &self,
+        bitmap: &mut Bitmap<C>,
+        transform: &Affine2<f32>,
+        clip: &Rect,
+        flags: RenderFlags,
+    ) -> Result<()> {
+        let page = self.handle().as_ptr();
+        let bitmap = bitmap.handle().as_ptr();
+        let matrix = crate::types::affine_to_pdfmatrix(transform);
+        let clip = pdfium_sys::FS_RECTF::from(clip);
+
+        unsafe {
+            self.library().ftable().FPDF_RenderPageBitmapWithMatrix(
+                bitmap,
+                page,
+                &matrix,
+                &clip,
                 flags.bits() as _,
             )
         };

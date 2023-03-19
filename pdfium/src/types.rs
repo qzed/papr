@@ -21,8 +21,8 @@ impl From<pdfium_sys::FS_RECTF> for Rect {
     }
 }
 
-impl From<Rect> for pdfium_sys::FS_RECTF {
-    fn from(other: Rect) -> Self {
+impl From<&Rect> for pdfium_sys::FS_RECTF {
+    fn from(other: &Rect) -> Self {
         Self {
             left: other.left,
             top: other.top,
@@ -33,11 +33,11 @@ impl From<Rect> for pdfium_sys::FS_RECTF {
 }
 
 pub fn affine_from_pdfmatrix(m: &pdfium_sys::FS_MATRIX) -> Affine2<f32> {
-    Affine2::from_matrix_unchecked(matrix![
+    nalgebra::try_convert(matrix![
         m.a, m.c, m.e;
         m.b, m.d, m.f;
         0.0, 0.0, 1.0;
-    ])
+    ]).unwrap()
 }
 
 pub fn affine_to_pdfmatrix(m: &Affine2<f32>) -> pdfium_sys::FS_MATRIX {
