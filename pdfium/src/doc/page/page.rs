@@ -284,6 +284,19 @@ impl Page {
         self.library().assert_status()
     }
 
+    /// Render this page to a bitmap, progressively.
+    ///
+    /// This render call initiates a progressive render operation. Rendering is
+    /// started immediately and interrupted upon request by (repeatedly)
+    /// checking the provided closure. If this closure returns `true`,
+    /// rendering will be paused and control will return to the caller.
+    ///
+    /// This function returns a [`ProgressiveRender`] object after either the
+    /// first interrupt or render completion (whichever happens first). This
+    /// object can be used to assess whether the operation has completed or
+    /// whether it has been paused, as well as continuing or aborting it.
+    ///
+    /// See [`Self::render()`] for more information.
     pub fn render_progressive<'a, 'b, C, F>(
         &'a self,
         bitmap: &'b mut Bitmap<C>,
@@ -303,6 +316,9 @@ impl Page {
         Ok(command)
     }
 
+    /// Render this page to a bitmap using the provided color scheme, progressively.
+    ///
+    /// See [`Self::render_progressive()`] for more information.
     pub fn render_progressive_with_colorscheme<'a, 'b, C, F>(
         &'a self,
         bitmap: &'b mut Bitmap<C>,
