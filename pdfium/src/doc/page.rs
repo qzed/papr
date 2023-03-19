@@ -50,7 +50,7 @@ impl<'a> Pages<'a> {
         };
 
         // zero-length: return empty string
-        if len <= 0 {
+        if len == 0 {
             return Ok(None);
         }
 

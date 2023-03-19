@@ -123,7 +123,7 @@ impl<C> Bitmap<C> {
         unsafe { std::slice::from_raw_parts(data as *const u8, len) }
     }
 
-    pub fn buf_mut(&self) -> &mut [u8] {
+    pub fn buf_mut(&mut self) -> &mut [u8] {
         let handle = self.handle().as_ptr();
 
         let len = self.stride() as usize * self.height() as usize;

@@ -70,11 +70,11 @@ impl Document {
     }
 
     pub fn metadata(&self) -> Metadata {
-        Metadata::new(self.library(), &self)
+        Metadata::new(self.library(), self)
     }
 
     pub fn pages(&self) -> Pages {
-        Pages::new(self.library(), &self)
+        Pages::new(self.library(), self)
     }
 }
 
