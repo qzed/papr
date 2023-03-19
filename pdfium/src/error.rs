@@ -10,6 +10,9 @@ pub enum Error {
     #[error("Invalid argument")]
     InvalidArgument,
 
+    #[error("Invalid operation")]
+    InvalidOperation,
+
     #[error("Error accessing shared library")]
     LibraryError(#[from] libloading::Error),
 
