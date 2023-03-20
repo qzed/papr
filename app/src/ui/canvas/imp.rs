@@ -15,7 +15,7 @@ use gtk::{
 use nalgebra::{point, vector, Point2};
 
 use crate::canvas::Canvas;
-use crate::types::{Aabb, Margin, Viewport};
+use crate::types::{Bounds, Margin, Viewport};
 
 pub struct CanvasWidget {
     // properties for scolling
@@ -44,7 +44,7 @@ pub struct CanvasWidget {
 
 impl CanvasWidget {
     fn new() -> Self {
-        let bounds = Aabb {
+        let bounds = Bounds {
             x_min: 0.0,
             y_min: 0.0,
             x_max: 1000.0,

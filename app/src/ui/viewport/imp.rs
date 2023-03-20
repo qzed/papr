@@ -20,7 +20,7 @@ use gtk::{
 };
 use nalgebra::{vector, Vector2};
 
-use crate::types::{Margin, Aabb};
+use crate::types::{Margin, Bounds};
 
 #[derive(Debug, CompositeTemplate)]
 #[template(resource = "/io/mxnluz/paper/ui/viewport.ui")]
@@ -85,9 +85,9 @@ impl ViewportWidget {
         )
     }
 
-    pub fn canvas_bounds(&self) -> Option<Aabb> {
+    pub fn canvas_bounds(&self) -> Option<Bounds> {
         self.scroller.child().map(|c|
-            Aabb {
+            Bounds {
                 x_min: c.property("bounds-x-min"),
                 x_max: c.property("bounds-x-max"),
                 y_min: c.property("bounds-y-min"),

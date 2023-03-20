@@ -2,15 +2,15 @@ use gtk::graphene;
 use nalgebra::{Vector2, Point2};
 
 #[derive(Debug, Clone, Copy)]
-pub struct Aabb {
+pub struct Bounds {
     pub x_min: f64,
     pub y_min: f64,
     pub x_max: f64,
     pub y_max: f64,
 }
 
-impl From<Aabb> for graphene::Rect {
-    fn from(b: Aabb) -> Self {
+impl From<Bounds> for graphene::Rect {
+    fn from(b: Bounds) -> Self {
         graphene::Rect::new(
             b.x_min as _,
             b.y_min as _,

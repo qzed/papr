@@ -2,19 +2,19 @@ use gtk::graphene;
 use gtk::traits::SnapshotExt;
 use gtk::Snapshot;
 
-use crate::types::{Aabb, Viewport};
+use crate::types::{Bounds, Viewport};
 
 #[derive(Debug)]
 pub struct Canvas {
-    bounds: Aabb,
+    bounds: Bounds,
 }
 
 impl Canvas {
-    pub fn new(bounds: Aabb) -> Self {
+    pub fn new(bounds: Bounds) -> Self {
         Self { bounds }
     }
 
-    pub fn bounds(&self) -> &Aabb {
+    pub fn bounds(&self) -> &Bounds {
         &self.bounds
     }
 
