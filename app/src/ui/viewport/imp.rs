@@ -107,7 +107,13 @@ impl ViewportWidget {
 
         let canvas_width = bounds.x_max - bounds.x_min;
         let viewport_width = self.scroller.width() as f64 - margin.left - margin.right;
-        let scale = viewport_width / canvas_width;
+
+        // canvas can have zero width if empty
+        let scale = if canvas_width != 0.0 {
+            viewport_width / canvas_width
+        } else {
+            1.0
+        };
 
         offset.x = bounds.x_min - margin.left;
 
