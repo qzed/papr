@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <gresources>
-  <gresource prefix="/io/mxnluz/paper/">
+  <gresource prefix="/io/mxnluz/papr/">
     <file compressed="true" preprocess="xml-stripblanks">ui/appwindow.ui</file>
     <file compressed="true" preprocess="xml-stripblanks">ui/viewport.ui</file>
   </gresource>

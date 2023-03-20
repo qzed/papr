@@ -966,7 +966,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "paper"
+name = "papr"
 version = "0.1.0"
 dependencies = [
  "glib-build-tools",

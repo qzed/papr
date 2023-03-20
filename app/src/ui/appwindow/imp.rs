@@ -11,7 +11,7 @@ use crate::ui::canvas::CanvasWidget;
 use crate::ui::viewport::ViewportWidget;
 
 #[derive(CompositeTemplate, Default)]
-#[template(resource = "/io/mxnluz/paper/ui/appwindow.ui")]
+#[template(resource = "/io/mxnluz/papr/ui/appwindow.ui")]
 pub struct AppWindow {
     #[template_child]
     viewport: TemplateChild<ViewportWidget>,

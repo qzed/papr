@@ -23,7 +23,7 @@ use nalgebra::{vector, Vector2};
 use crate::types::{Bounds, Margin};
 
 #[derive(Debug, CompositeTemplate)]
-#[template(resource = "/io/mxnluz/paper/ui/viewport.ui")]
+#[template(resource = "/io/mxnluz/papr/ui/viewport.ui")]
 pub struct ViewportWidget {
     scale_step: f64,
 

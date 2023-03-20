@@ -1,6 +1,6 @@
 [package]
 edition = "2021"
-name = "paper"
+name = "papr"
 authors = ["Maximilian Luz <m@mxnluz.io>"]
 version = "0.1.0"
 

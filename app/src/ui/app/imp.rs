@@ -33,7 +33,7 @@ impl ApplicationImpl for App {
     fn startup(&self) {
         self.parent_startup();
 
-        gio::resources_register_include!("paper.gresource").expect("Failed to register resources.");
+        gio::resources_register_include!("papr.gresource").expect("Failed to register resources.");
 
         // register custom widgets
         AppWindow::static_type();
