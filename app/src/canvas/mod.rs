@@ -12,23 +12,45 @@ use crate::pdf::Document;
 use crate::types::{Bounds, Viewport};
 
 pub struct Canvas {
-    page: Page,
+    pages: Vec<Page>,
     bounds: Bounds,
+    page_space: f64,
 }
 
 impl Canvas {
     pub fn create(doc: Document) -> Self {
-        let page = doc.pdf.pages().get(0).unwrap();
-        let size = page.size();
+        let mut pages = Vec::new();
+
+        let page_space = 10.0;
+        let mut x: f64 = 0.0;
+        let mut y: f64 = 0.0;
+
+        for i in 0..(doc.pdf.pages().count()) {
+            let page = doc.pdf.pages().get(i).unwrap();
+            let size = page.size();
+
+            x = x.max(size.x as f64);
+            y = y + size.y as f64;
+
+            if i > 0 {
+                y += page_space;
+            }
+
+            pages.push(page);
+        }
 
         let bounds = Bounds {
             x_min: 0.0,
             y_min: 0.0,
-            x_max: size.x as _,
-            y_max: size.y as _,
+            x_max: x,
+            y_max: y,
         };
 
-        Self { page, bounds }
+        Self {
+            pages,
+            bounds,
+            page_space,
+        }
     }
 
     pub fn bounds(&self) -> &Bounds {
@@ -55,7 +77,6 @@ impl Canvas {
         //   defined by the page offset in the canvas.
 
         // TODO:
-        // - render more than one page
         // - further optimizations (tiling?)
 
         // do the drawing in canvas coordinates
@@ -81,98 +102,109 @@ impl Canvas {
         let vp_size_c = m_vtc * vp.size;
 
         // page rendering
+        let mut offs_y = 0.0;
 
-        // transformation matrix: page to canvas
-        let m_ptc = {
-            let m_trans = Matrix3::new_translation(&vector![0.0, 0.0]);
-            let m_trans = Affine2::from_matrix_unchecked(m_trans);
+        for page in &self.pages {
+            // transformation matrix: page to canvas
+            let m_ptc = {
+                let m_trans = Matrix3::new_translation(&vector![0.0, offs_y]);
+                let m_trans = Affine2::from_matrix_unchecked(m_trans);
 
-            m_trans
-        };
+                m_trans
+            };
 
-        // transformation matrix: canvas to page
-        let m_ctp = m_ptc.inverse();
+            // transformation matrix: canvas to page
+            let m_ctp = m_ptc.inverse();
 
-        // transformation matrix: page to viewport
-        let m_ptv = m_ctv * m_ptc;
+            // transformation matrix: page to viewport
+            let m_ptv = m_ctv * m_ptc;
 
-        // convert viewport bounds to page-local coordinates
-        let vp_offs_p = m_ctp * vp_offs_c;
-        let vp_size_p = m_ctp * vp_size_c;
+            // convert viewport bounds to page-local coordinates
+            let vp_offs_p = m_ctp * vp_offs_c;
+            let vp_size_p = m_ctp * vp_size_c;
 
-        // clip page-local viewport to page bounds (0, 0, width, height)
-        let page_size: Vector2<f64> = nalgebra::convert(self.page.size());
+            // clip page-local viewport to page bounds (0, 0, width, height)
+            let page_size: Vector2<f64> = nalgebra::convert(page.size());
 
-        let vp_offs_p_clipped = point![vp_offs_p.x.max(0.0), vp_offs_p.y.max(0.0)];
-        let vp_size_p_clipped = vector![
-            (vp_offs_p.x + vp_size_p.x).min(page_size.x) - vp_offs_p_clipped.x,
-            (vp_offs_p.y + vp_size_p.y).min(page_size.y) - vp_offs_p_clipped.y
-        ];
+            let vp_offs_p_clipped = point![vp_offs_p.x.max(0.0), vp_offs_p.y.max(0.0)];
+            let vp_size_p_clipped = vector![
+                (vp_offs_p.x + vp_size_p.x).min(page_size.x) - vp_offs_p_clipped.x,
+                (vp_offs_p.y + vp_size_p.y).min(page_size.y) - vp_offs_p_clipped.y
+            ];
 
-        // convert clipped viewport back to canvas coordinates
-        let vp_offs_c_clipped = m_ptc * vp_offs_p_clipped;
-        let vp_size_c_clipped = m_ptc * vp_size_p_clipped;
+            // update page offset
+            offs_y += page_size.y + self.page_space;
 
-        // offset into page in render pixels
-        let page_px_offs = m_ptv * vp_offs_p_clipped.coords;
+            // convert clipped viewport back to canvas coordinates
+            let vp_offs_c_clipped = m_ptc * vp_offs_p_clipped;
+            let vp_size_c_clipped = m_ptc * vp_size_p_clipped;
 
-        // full page size in render pixels
-        let page_px_size = m_ptv * page_size;
+            // offset into page in render pixels
+            let page_px_offs = m_ptv * vp_offs_p_clipped.coords;
 
-        // viewport size in render pixels
-        let page_px_vpsize = m_ptv * vp_size_p_clipped;
+            // full page size in render pixels
+            let page_px_size = m_ptv * page_size;
 
-        // allocate bitmap
-        let mut bmp = Bitmap::uninitialized(
-            self.page.library().clone(),
-            page_px_vpsize.x as _,
-            page_px_vpsize.y as _,
-            BitmapFormat::Bgra,
-        )
-        .unwrap();
+            // viewport size in render pixels
+            let page_px_vpsize = m_ptv * vp_size_p_clipped;
 
-        // set up render layout
-        let layout = PageRenderLayout {
-            start: nalgebra::convert_unchecked::<_, Vector2<i32>>(-page_px_offs).into(),
-            size: nalgebra::convert_unchecked::<_, Vector2<i32>>(page_px_size),
-            rotate: PageRotation::None,
-        };
+            // check if page is actually in view
+            if page_px_vpsize.x < 1.0 || page_px_vpsize.y < 1.0 {
+                continue;
+            }
 
-        // render page to bitmap
-        let flags = RenderFlags::Annotations;
-        self.page.render(&mut bmp, &layout, flags).unwrap();
+            // allocate bitmap
+            let mut bmp = Bitmap::uninitialized(
+                page.library().clone(),
+                page_px_vpsize.x as _,
+                page_px_vpsize.y as _,
+                BitmapFormat::Bgra,
+            )
+            .unwrap();
 
-        // convert rendered bitmap to GTK texture
-        let bytes = glib::Bytes::from(bmp.buf());
+            // set up render layout
+            let layout = PageRenderLayout {
+                start: nalgebra::convert_unchecked::<_, Vector2<i32>>(-page_px_offs).into(),
+                size: nalgebra::convert_unchecked::<_, Vector2<i32>>(page_px_size),
+                rotate: PageRotation::None,
+            };
 
-        let texture = gdk::MemoryTexture::new(
-            page_px_vpsize.x as i32,
-            page_px_vpsize.y as i32,
-            gdk::MemoryFormat::B8g8r8a8,
-            &bytes,
-            bmp.stride() as _,
-        );
+            // render page to bitmap
+            let flags = RenderFlags::Annotations;
+            page.render(&mut bmp, &layout, flags).unwrap();
 
-        // draw background
-        snapshot.append_color(
-            &gtk::gdk::RGBA::new(1.0, 1.0, 1.0, 1.0),
-            &Rect::new(
-                vp_offs_c_clipped.x as _,
-                vp_offs_c_clipped.y as _,
-                vp_size_c_clipped.x as _,
-                vp_size_c_clipped.y as _,
-            ),
-        );
+            // convert rendered bitmap to GTK texture
+            let bytes = glib::Bytes::from(bmp.buf());
 
-        // draw page contents
-        snapshot.append_texture(
-            &texture,
-            &Rect::new(
-                vp_offs_c_clipped.x as _,
-                vp_offs_c_clipped.y as _,
-                vp_size_c_clipped.x as _,
-                vp_size_c_clipped.y as _,
-            ),
-        );
+            let texture = gdk::MemoryTexture::new(
+                page_px_vpsize.x as i32,
+                page_px_vpsize.y as i32,
+                gdk::MemoryFormat::B8g8r8a8,
+                &bytes,
+                bmp.stride() as _,
+            );
+
+            // draw background
+            snapshot.append_color(
+                &gtk::gdk::RGBA::new(1.0, 1.0, 1.0, 1.0),
+                &Rect::new(
+                    vp_offs_c_clipped.x as _,
+                    vp_offs_c_clipped.y as _,
+                    vp_size_c_clipped.x as _,
+                    vp_size_c_clipped.y as _,
+                ),
+            );
+
+            // draw page contents
+            snapshot.append_texture(
+                &texture,
+                &Rect::new(
+                    vp_offs_c_clipped.x as _,
+                    vp_offs_c_clipped.y as _,
+                    vp_size_c_clipped.x as _,
+                    vp_size_c_clipped.y as _,
+                ),
+            );
+        }
     }
 }
