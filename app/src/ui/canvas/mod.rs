@@ -1,4 +1,7 @@
 use gtk::glib;
+use gtk::subclass::prelude::ObjectSubclassIsExt;
+
+use crate::canvas::Canvas;
 
 mod imp;
 
@@ -11,6 +14,10 @@ glib::wrapper! {
 impl CanvasWidget {
     pub fn new() -> Self {
         glib::Object::new()
+    }
+
+    pub fn set_canvas(&self, canvas: Option<Canvas>) {
+        self.imp().set_canvas(canvas)
     }
 }
 

@@ -84,6 +84,10 @@ impl CanvasWidget {
             .map(|c| *c.bounds())
             .unwrap_or_else(Bounds::zero)
     }
+
+    pub fn set_canvas(&self, canvas: Option<Canvas>) {
+        *self.canvas.borrow_mut() = canvas
+    }
 }
 
 impl Default for CanvasWidget {

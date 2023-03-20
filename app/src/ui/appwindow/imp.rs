@@ -1,17 +1,34 @@
 use adw::subclass::prelude::AdwApplicationWindowImpl;
-use gtk::{
-    glib,
-    glib::subclass::InitializingObject,
-    subclass::prelude::{
-        ApplicationWindowImpl, CompositeTemplateClass, CompositeTemplateInitializingExt,
-        ObjectImpl, ObjectSubclass, WidgetImpl, WindowImpl,
-    },
-    CompositeTemplate,
+use gtk::glib::subclass::InitializingObject;
+use gtk::subclass::prelude::{
+    ApplicationWindowImpl, CompositeTemplateClass, CompositeTemplateInitializingExt, ObjectImpl,
+    ObjectSubclass, WidgetImpl, WindowImpl,
 };
+use gtk::subclass::widget::WidgetClassSubclassExt;
+use gtk::{glib, CompositeTemplate, TemplateChild};
+
+use crate::ui::canvas::CanvasWidget;
+use crate::ui::viewport::ViewportWidget;
 
 #[derive(CompositeTemplate, Default)]
 #[template(resource = "/io/mxnluz/paper/ui/appwindow.ui")]
-pub struct AppWindow {}
+pub struct AppWindow {
+    #[template_child]
+    viewport: TemplateChild<ViewportWidget>,
+
+    #[template_child]
+    canvas: TemplateChild<CanvasWidget>,
+}
+
+impl AppWindow {
+    pub fn viewport(&self) -> &ViewportWidget {
+        &self.viewport
+    }
+
+    pub fn canvas(&self) -> &CanvasWidget {
+        &self.canvas
+    }
+}
 
 #[glib::object_subclass]
 impl ObjectSubclass for AppWindow {
