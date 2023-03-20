@@ -26,23 +26,30 @@ struct Viewport {
 #[derive(Debug)]
 struct Canvas {
     bounds: Aabb,
-    viewport: Viewport,
 }
 
 pub struct CanvasWidget {
+    // properties for scolling
     hscroll_policy: Cell<ScrollablePolicy>,
     vscroll_policy: Cell<ScrollablePolicy>,
     hadjustment: RefCell<Option<Adjustment>>,
     vadjustment: RefCell<Option<Adjustment>>,
+
+    // handlers for scrolling
     hadjustment_handler: Cell<Option<glib::SignalHandlerId>>,
     vadjustment_handler: Cell<Option<glib::SignalHandlerId>>,
 
-    // r/w properties
+    // properties for canvas
     margin: RefCell<Margin>,
+
+    // properties for viewport
     offset: RefCell<Vector2<f64>>,
     scale: Cell<f64>,
 
     // render-state
+    viewport: RefCell<Viewport>,
+
+    // canvas to be rendered
     actual: RefCell<Canvas>,
 }
 
@@ -70,6 +77,7 @@ impl CanvasWidget {
             vscroll_policy: Cell::new(ScrollablePolicy::Minimum),
             hadjustment: RefCell::new(None),
             vadjustment: RefCell::new(None),
+
             hadjustment_handler: Cell::new(None),
             vadjustment_handler: Cell::new(None),
 
@@ -77,13 +85,14 @@ impl CanvasWidget {
             offset: RefCell::new(offset),
             scale: Cell::new(scale),
 
+            viewport: RefCell::new(Viewport {
+                size: vector![600.0, 800.0],
+                offset,
+                scale,
+            }),
+
             actual: RefCell::new(Canvas {
                 bounds,
-                viewport: Viewport {
-                    size: vector![600.0, 800.0],
-                    offset,
-                    scale,
-                },
             }),
         }
     }
@@ -337,14 +346,13 @@ impl WidgetImpl for CanvasWidget {
         // allocation, we then update the viewport, adjustments, and clip the
         // position and offsets.
 
-        let mut canvas = self.actual.borrow_mut();
-
         let hadj = self.obj().hadjustment().unwrap();
         let vadj = self.obj().vadjustment().unwrap();
 
         let viewport_size = vector![width as f64, height as f64];
         let scale = self.scale.get();
 
+        let canvas = self.actual.borrow_mut();
         let bounds_min = vector![canvas.bounds.x_min, canvas.bounds.y_min];
         let bounds_max = vector![canvas.bounds.x_max, canvas.bounds.y_max];
 
@@ -404,9 +412,10 @@ impl WidgetImpl for CanvasWidget {
         self.obj().notify("offset-y");
 
         // update render state
-        canvas.viewport.offset = offset;
-        canvas.viewport.size = viewport_size;
-        canvas.viewport.scale = scale;
+        let mut viewport = self.viewport.borrow_mut();
+        viewport.offset = offset;
+        viewport.size = viewport_size;
+        viewport.scale = scale;
     }
 
     fn snapshot(&self, snapshot: &gtk::Snapshot) {
@@ -417,7 +426,8 @@ impl WidgetImpl for CanvasWidget {
         snapshot.push_clip(&bounds);
 
         // draw actual canvas
-        self.actual.borrow().render(snapshot);
+        let viewport = self.viewport.borrow();
+        self.actual.borrow().render(&viewport, snapshot);
 
         // pop the clip
         snapshot.pop();
@@ -427,12 +437,12 @@ impl WidgetImpl for CanvasWidget {
 impl ScrollableImpl for CanvasWidget {}
 
 impl Canvas {
-    fn render(&self, snapshot: &gtk::Snapshot) {
+    fn render(&self, viewport: &Viewport, snapshot: &gtk::Snapshot) {
         snapshot.translate(&graphene::Point::new(
-            -self.viewport.offset.x as f32,
-            -self.viewport.offset.y as f32,
+            -viewport.offset.x as f32,
+            -viewport.offset.y as f32,
         ));
-        snapshot.scale(self.viewport.scale as f32, self.viewport.scale as f32);
+        snapshot.scale(viewport.scale as f32, viewport.scale as f32);
 
         // clip drawing to canvas area
         snapshot.push_clip(&self.bounds.into());
