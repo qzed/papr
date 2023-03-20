@@ -12,21 +12,10 @@ use gtk::{
     traits::{AdjustmentExt, ScrollableExt, SnapshotExt, WidgetExt},
     Adjustment, ScrollablePolicy,
 };
-use nalgebra::{vector, Vector2};
+use nalgebra::{point, vector, Point2};
 
-use crate::types::{Aabb, Margin};
-
-#[derive(Debug)]
-struct Viewport {
-    size: Vector2<f64>,
-    offset: Vector2<f64>,
-    scale: f64,
-}
-
-#[derive(Debug)]
-struct Canvas {
-    bounds: Aabb,
-}
+use crate::canvas::Canvas;
+use crate::types::{Aabb, Margin, Viewport};
 
 pub struct CanvasWidget {
     // properties for scolling
@@ -43,7 +32,7 @@ pub struct CanvasWidget {
     margin: RefCell<Margin>,
 
     // properties for viewport
-    offset: RefCell<Vector2<f64>>,
+    offset: RefCell<Point2<f64>>,
     scale: Cell<f64>,
 
     // render-state
@@ -69,7 +58,7 @@ impl CanvasWidget {
             bottom: 100.0,
         };
 
-        let offset = vector![0.0, 0.0];
+        let offset = point![0.0, 0.0];
         let scale = 1.0;
 
         Self {
@@ -91,9 +80,7 @@ impl CanvasWidget {
                 scale,
             }),
 
-            actual: RefCell::new(Canvas {
-                bounds,
-            }),
+            actual: RefCell::new(Canvas::new(bounds)),
         }
     }
 }
@@ -287,10 +274,10 @@ impl ObjectImpl for CanvasWidget {
             "vscroll-policy" => self.vscroll_policy.get().to_value(),
             "hadjustment" => self.hadjustment.borrow().to_value(),
             "vadjustment" => self.vadjustment.borrow().to_value(),
-            "bounds-x-min" => self.actual.borrow().bounds.x_min.to_value(),
-            "bounds-x-max" => self.actual.borrow().bounds.x_max.to_value(),
-            "bounds-y-min" => self.actual.borrow().bounds.y_min.to_value(),
-            "bounds-y-max" => self.actual.borrow().bounds.y_max.to_value(),
+            "bounds-x-min" => self.actual.borrow().bounds().x_min.to_value(),
+            "bounds-x-max" => self.actual.borrow().bounds().x_max.to_value(),
+            "bounds-y-min" => self.actual.borrow().bounds().y_min.to_value(),
+            "bounds-y-max" => self.actual.borrow().bounds().y_max.to_value(),
             "margin-left" => self.margin.borrow().left.to_value(),
             "margin-right" => self.margin.borrow().right.to_value(),
             "margin-top" => self.margin.borrow().top.to_value(),
@@ -309,7 +296,7 @@ impl WidgetImpl for CanvasWidget {
     }
 
     fn measure(&self, orientation: gtk::Orientation, _for_size: i32) -> (i32, i32, i32, i32) {
-        let bounds = self.actual.borrow().bounds;
+        let bounds = *self.actual.borrow().bounds();
         let margin = self.margin.borrow();
 
         let margin_lower = vector![margin.left, margin.top];
@@ -352,9 +339,9 @@ impl WidgetImpl for CanvasWidget {
         let viewport_size = vector![width as f64, height as f64];
         let scale = self.scale.get();
 
-        let canvas = self.actual.borrow_mut();
-        let bounds_min = vector![canvas.bounds.x_min, canvas.bounds.y_min];
-        let bounds_max = vector![canvas.bounds.x_max, canvas.bounds.y_max];
+        let bounds = *self.actual.borrow().bounds();
+        let bounds_min = vector![bounds.x_min, bounds.y_min];
+        let bounds_max = vector![bounds.x_max, bounds.y_max];
 
         let margin = self.margin.borrow();
         let margin_lower = vector![margin.left, margin.top];
@@ -364,7 +351,7 @@ impl WidgetImpl for CanvasWidget {
         let mut upper = bounds_max * scale + margin_upper;
 
         let offset = *self.offset.borrow();
-        let mut offset = vector![
+        let mut offset = point![
             offset.x.min(upper.x - viewport_size.x).max(lower.x),
             offset.y.min(upper.y - viewport_size.y).max(lower.y)
         ];
@@ -435,51 +422,3 @@ impl WidgetImpl for CanvasWidget {
 }
 
 impl ScrollableImpl for CanvasWidget {}
-
-impl Canvas {
-    fn render(&self, viewport: &Viewport, snapshot: &gtk::Snapshot) {
-        snapshot.translate(&graphene::Point::new(
-            -viewport.offset.x as f32,
-            -viewport.offset.y as f32,
-        ));
-        snapshot.scale(viewport.scale as f32, viewport.scale as f32);
-
-        // clip drawing to canvas area
-        snapshot.push_clip(&self.bounds.into());
-
-        // TODO
-
-        // temporary: draw background + grid
-        snapshot.append_color(
-            &gtk::gdk::RGBA::new(1.0, 1.0, 1.0, 1.0),
-            &graphene::Rect::from(self.bounds),
-        );
-
-        for x in (self.bounds.x_min as i32..=self.bounds.x_max as i32).step_by(25) {
-            snapshot.append_color(
-                &gtk::gdk::RGBA::new(0.0, 0.3, 0.6, 1.0),
-                &graphene::Rect::new(
-                    x as f32 - 0.5,
-                    self.bounds.y_min as f32,
-                    1.0,
-                    (self.bounds.y_max - self.bounds.y_min) as f32,
-                ),
-            );
-        }
-
-        for y in (self.bounds.y_min as i32..=self.bounds.y_max as i32).step_by(25) {
-            snapshot.append_color(
-                &gtk::gdk::RGBA::new(0.0, 0.3, 0.6, 1.0),
-                &graphene::Rect::new(
-                    self.bounds.x_min as f32,
-                    y as f32 - 0.5,
-                    (self.bounds.x_max - self.bounds.x_min) as f32,
-                    1.0,
-                ),
-            );
-        }
-
-        // pop the clip
-        snapshot.pop();
-    }
-}

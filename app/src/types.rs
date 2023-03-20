@@ -1,5 +1,5 @@
 use gtk::graphene;
-
+use nalgebra::{Vector2, Point2};
 
 #[derive(Debug, Clone, Copy)]
 pub struct Aabb {
@@ -26,4 +26,11 @@ pub struct Margin {
     pub right: f64,
     pub top: f64,
     pub bottom: f64,
+}
+
+#[derive(Debug)]
+pub struct Viewport {
+    pub size: Vector2<f64>,
+    pub offset: Point2<f64>,
+    pub scale: f64,
 }
