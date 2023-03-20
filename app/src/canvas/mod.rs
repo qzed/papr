@@ -1,4 +1,4 @@
-use gtk::graphene::{Point, Rect};
+use gtk::graphene::Rect;
 use gtk::traits::SnapshotExt;
 use gtk::Snapshot;
 use gtk::{gdk, glib};
@@ -79,10 +79,6 @@ impl Canvas {
         // TODO:
         // - further optimizations (tiling?)
 
-        // do the drawing in canvas coordinates
-        snapshot.translate(&Point::new(-vp.offset.x as f32, -vp.offset.y as f32));
-        snapshot.scale(vp.scale as f32, vp.scale as f32);
-
         // transformation matrix: canvas to viewport
         let m_ctv = {
             let m_scale = Matrix3::new_scaling(vp.scale);
@@ -94,17 +90,12 @@ impl Canvas {
             m_trans * m_scale
         };
 
-        // transformation matrix: viewport to canvas
-        let m_vtc = m_ctv.inverse();
-
-        // convert viewport bounds (0, 0, width, height) to canvas coordinates
-        let vp_offs_c = m_vtc * point![0.0, 0.0];
-        let vp_size_c = m_vtc * vp.size;
-
         // page rendering
         let mut offs_y = 0.0;
 
         for page in &self.pages {
+            let page_size: Vector2<f64> = nalgebra::convert(page.size());
+
             // transformation matrix: page to canvas
             let m_ptc = {
                 let m_trans = Matrix3::new_translation(&vector![0.0, offs_y]);
@@ -113,59 +104,44 @@ impl Canvas {
                 m_trans
             };
 
-            // transformation matrix: canvas to page
-            let m_ctp = m_ptc.inverse();
-
             // transformation matrix: page to viewport
             let m_ptv = m_ctv * m_ptc;
 
-            // convert viewport bounds to page-local coordinates
-            let vp_offs_p = m_ctp * vp_offs_c;
-            let vp_size_p = m_ctp * vp_size_c;
-
-            // clip page-local viewport to page bounds (0, 0, width, height)
-            let page_size: Vector2<f64> = nalgebra::convert(page.size());
-
-            let vp_offs_p_clipped = point![vp_offs_p.x.max(0.0), vp_offs_p.y.max(0.0)];
-            let vp_size_p_clipped = vector![
-                (vp_offs_p.x + vp_size_p.x).min(page_size.x) - vp_offs_p_clipped.x,
-                (vp_offs_p.y + vp_size_p.y).min(page_size.y) - vp_offs_p_clipped.y
-            ];
+            // convert page bounds to viewport coordinates
+            let page_offs_v = m_ptv * point![0.0, 0.0];
+            let page_size_v = m_ptv * page_size;
 
             // update page offset
             offs_y += page_size.y + self.page_space;
 
-            // convert clipped viewport back to canvas coordinates
-            let vp_offs_c_clipped = m_ptc * vp_offs_p_clipped;
-            let vp_size_c_clipped = m_ptc * vp_size_p_clipped;
+            // clip page bounds to viewport
+            let page_offs_v_clipped = point![page_offs_v.x.max(0.0), page_offs_v.y.max(0.0)];
+            let page_size_v_clipped = vector![
+                (page_offs_v.x + page_size_v.x).min(vp.size.x) - page_offs_v_clipped.x,
+                (page_offs_v.y + page_size_v.y).min(vp.size.y) - page_offs_v_clipped.y
+            ];
 
-            // offset into page in render pixels
-            let page_px_offs = m_ptv * vp_offs_p_clipped.coords;
-
-            // full page size in render pixels
-            let page_px_size = m_ptv * page_size;
-
-            // viewport size in render pixels
-            let page_px_vpsize = m_ptv * vp_size_p_clipped;
-
-            // check if page is actually in view
-            if page_px_vpsize.x < 1.0 || page_px_vpsize.y < 1.0 {
+            // check if page is in view
+            if page_size_v_clipped.x < 1.0 || page_size_v_clipped.y < 1.0 {
                 continue;
             }
+
+            // page offset in display pixels
+            let page_offs_d = page_offs_v - page_offs_v_clipped;
 
             // allocate bitmap
             let mut bmp = Bitmap::uninitialized(
                 page.library().clone(),
-                page_px_vpsize.x as _,
-                page_px_vpsize.y as _,
+                page_size_v_clipped.x as _,
+                page_size_v_clipped.y as _,
                 BitmapFormat::Bgra,
             )
             .unwrap();
 
             // set up render layout
             let layout = PageRenderLayout {
-                start: nalgebra::convert_unchecked::<_, Vector2<i32>>(-page_px_offs).into(),
-                size: nalgebra::convert_unchecked::<_, Vector2<i32>>(page_px_size),
+                start: nalgebra::convert_unchecked::<_, Vector2<i32>>(page_offs_d).into(),
+                size: nalgebra::convert_unchecked::<_, Vector2<i32>>(page_size_v),
                 rotate: PageRotation::None,
             };
 
@@ -177,8 +153,8 @@ impl Canvas {
             let bytes = glib::Bytes::from(bmp.buf());
 
             let texture = gdk::MemoryTexture::new(
-                page_px_vpsize.x as i32,
-                page_px_vpsize.y as i32,
+                page_size_v_clipped.x as i32,
+                page_size_v_clipped.y as i32,
                 gdk::MemoryFormat::B8g8r8a8,
                 &bytes,
                 bmp.stride() as _,
@@ -188,10 +164,10 @@ impl Canvas {
             snapshot.append_color(
                 &gtk::gdk::RGBA::new(1.0, 1.0, 1.0, 1.0),
                 &Rect::new(
-                    vp_offs_c_clipped.x as _,
-                    vp_offs_c_clipped.y as _,
-                    vp_size_c_clipped.x as _,
-                    vp_size_c_clipped.y as _,
+                    page_offs_v_clipped.x as _,
+                    page_offs_v_clipped.y as _,
+                    page_size_v_clipped.x as _,
+                    page_size_v_clipped.y as _,
                 ),
             );
 
@@ -199,10 +175,10 @@ impl Canvas {
             snapshot.append_texture(
                 &texture,
                 &Rect::new(
-                    vp_offs_c_clipped.x as _,
-                    vp_offs_c_clipped.y as _,
-                    vp_size_c_clipped.x as _,
-                    vp_size_c_clipped.y as _,
+                    page_offs_v_clipped.x as _,
+                    page_offs_v_clipped.y as _,
+                    page_size_v_clipped.x as _,
+                    page_size_v_clipped.y as _,
                 ),
             );
         }
