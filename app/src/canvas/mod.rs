@@ -1,17 +1,31 @@
-use gtk::graphene;
+use gtk::{graphene, glib, gdk};
 use gtk::traits::SnapshotExt;
 use gtk::Snapshot;
+use nalgebra::{point, vector};
+use pdfium::bitmap::{Bitmap, BitmapFormat};
+use pdfium::doc::{Page, PageRenderLayout, PageRotation, RenderFlags};
 
+use crate::pdf::Document;
 use crate::types::{Bounds, Viewport};
 
-#[derive(Debug)]
 pub struct Canvas {
+    page: Page,
     bounds: Bounds,
 }
 
 impl Canvas {
-    pub fn new(bounds: Bounds) -> Self {
-        Self { bounds }
+    pub fn create(doc: Document) -> Self {
+        let page = doc.pdf.pages().get(0).unwrap();
+        let size = page.size();
+
+        let bounds = Bounds {
+            x_min: 0.0,
+            y_min: 0.0,
+            x_max: size.x as _,
+            y_max: size.y as _,
+        };
+
+        Self { page, bounds }
     }
 
     pub fn bounds(&self) -> &Bounds {
@@ -28,37 +42,47 @@ impl Canvas {
         // clip drawing to canvas area
         snapshot.push_clip(&self.bounds.into());
 
-        // TODO
-
-        // temporary: draw background + grid
+        // draw background
         snapshot.append_color(
             &gtk::gdk::RGBA::new(1.0, 1.0, 1.0, 1.0),
             &graphene::Rect::from(self.bounds),
         );
 
-        for x in (self.bounds.x_min as i32..=self.bounds.x_max as i32).step_by(25) {
-            snapshot.append_color(
-                &gtk::gdk::RGBA::new(0.0, 0.3, 0.6, 1.0),
-                &graphene::Rect::new(
-                    x as f32 - 0.5,
-                    self.bounds.y_min as f32,
-                    1.0,
-                    (self.bounds.y_max - self.bounds.y_min) as f32,
-                ),
-            );
-        }
+        // TODO:
+        // - render only what's on screen
+        // - render more than one page
+        // - further optimizations (tiling?)
 
-        for y in (self.bounds.y_min as i32..=self.bounds.y_max as i32).step_by(25) {
-            snapshot.append_color(
-                &gtk::gdk::RGBA::new(0.0, 0.3, 0.6, 1.0),
-                &graphene::Rect::new(
-                    self.bounds.x_min as f32,
-                    y as f32 - 0.5,
-                    (self.bounds.x_max - self.bounds.x_min) as f32,
-                    1.0,
-                ),
-            );
-        }
+        // convert offset to PDF coordinates (pt)
+        let page_size = self.page.size();
+        let page_size_scaled = page_size * viewport.scale as f32;
+
+        let flags = RenderFlags::Annotations;
+        let layout = PageRenderLayout {
+            start: point![0, 0],
+            size: vector![page_size_scaled.x as _, page_size_scaled.y as _],
+            rotate: PageRotation::None,
+        };
+
+        let lib = self.page.library().clone();
+        let mut bmp = Bitmap::uninitialized(lib, page_size_scaled.x as _, page_size_scaled.y as _, BitmapFormat::Bgra).unwrap();
+
+        self.page.render(&mut bmp, &layout, flags).unwrap();
+
+        let bytes = glib::Bytes::from(bmp.buf());
+
+        let texture = gdk::MemoryTexture::new(
+            bmp.width() as i32,
+            bmp.height() as i32,
+            gdk::MemoryFormat::B8g8r8a8,
+            &bytes,
+            bmp.stride() as _,
+        );
+
+        snapshot.append_texture(
+            &texture,
+            &graphene::Rect::new(0.0, 0.0, page_size.x as _, page_size.y as _),
+        );
 
         // pop the clip
         snapshot.pop();

@@ -1,6 +1,5 @@
 use crate::canvas::Canvas;
 use crate::pdf::Document;
-use crate::types::Bounds;
 
 use gtk::glib::clone;
 use gtk::prelude::FileExt;
@@ -8,8 +7,6 @@ use gtk::subclass::prelude::ObjectSubclassIsExt;
 use gtk::{gio, glib};
 
 use nalgebra::vector;
-
-use pdfium::doc::MetadataTag;
 
 use super::canvas::CanvasWidget;
 use super::viewport::ViewportWidget;
@@ -44,21 +41,10 @@ impl AppWindow {
             let (data, _etag) = file.load_bytes_future().await.expect("failed to load file");
             let data = data.to_vec();
 
-            // TODO
             let doc = Document::load_bytes(data).unwrap();
-            println!("  title: {:?}", doc.pdf.metadata().get(MetadataTag::Title).unwrap().unwrap());
+            let canvas = Canvas::create(doc);
 
-            let page = doc.pdf.pages().get(0).unwrap();
-            let size = page.size();
-
-            let bounds = Bounds {
-                x_min: 0.0,
-                y_min: 0.0,
-                x_max: size.x as _,
-                y_max: size.y as _,
-            };
-
-            let canvas = Canvas::new(bounds);
+            println!("file loaded, creating canvas");
             appwindow.canvas().set_canvas(Some(canvas));
             appwindow.viewport().set_offset_and_scale(vector![0.0, 0.0], 1.0);
             appwindow.viewport().fit_width();
