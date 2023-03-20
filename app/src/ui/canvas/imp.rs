@@ -39,18 +39,11 @@ pub struct CanvasWidget {
     viewport: RefCell<Viewport>,
 
     // canvas to be rendered
-    actual: RefCell<Canvas>,
+    canvas: RefCell<Option<Canvas>>,
 }
 
 impl CanvasWidget {
     fn new() -> Self {
-        let bounds = Bounds {
-            x_min: 0.0,
-            y_min: 0.0,
-            x_max: 1000.0,
-            y_max: 1500.0,
-        };
-
         let margin = Margin {
             left: 50.0,
             right: 50.0,
@@ -80,8 +73,16 @@ impl CanvasWidget {
                 scale,
             }),
 
-            actual: RefCell::new(Canvas::new(bounds)),
+            canvas: RefCell::new(None),
         }
+    }
+
+    fn bounds(&self) -> Bounds {
+        self.canvas
+            .borrow()
+            .as_ref()
+            .map(|c| *c.bounds())
+            .unwrap_or_else(Bounds::zero)
     }
 }
 
@@ -274,10 +275,10 @@ impl ObjectImpl for CanvasWidget {
             "vscroll-policy" => self.vscroll_policy.get().to_value(),
             "hadjustment" => self.hadjustment.borrow().to_value(),
             "vadjustment" => self.vadjustment.borrow().to_value(),
-            "bounds-x-min" => self.actual.borrow().bounds().x_min.to_value(),
-            "bounds-x-max" => self.actual.borrow().bounds().x_max.to_value(),
-            "bounds-y-min" => self.actual.borrow().bounds().y_min.to_value(),
-            "bounds-y-max" => self.actual.borrow().bounds().y_max.to_value(),
+            "bounds-x-min" => self.bounds().x_min.to_value(),
+            "bounds-x-max" => self.bounds().x_max.to_value(),
+            "bounds-y-min" => self.bounds().y_min.to_value(),
+            "bounds-y-max" => self.bounds().y_max.to_value(),
             "margin-left" => self.margin.borrow().left.to_value(),
             "margin-right" => self.margin.borrow().right.to_value(),
             "margin-top" => self.margin.borrow().top.to_value(),
@@ -296,9 +297,9 @@ impl WidgetImpl for CanvasWidget {
     }
 
     fn measure(&self, orientation: gtk::Orientation, _for_size: i32) -> (i32, i32, i32, i32) {
-        let bounds = *self.actual.borrow().bounds();
-        let margin = self.margin.borrow();
+        let bounds = self.bounds();
 
+        let margin = self.margin.borrow();
         let margin_lower = vector![margin.left, margin.top];
         let margin_upper = vector![margin.right, margin.bottom];
 
@@ -339,7 +340,7 @@ impl WidgetImpl for CanvasWidget {
         let viewport_size = vector![width as f64, height as f64];
         let scale = self.scale.get();
 
-        let bounds = *self.actual.borrow().bounds();
+        let bounds = self.bounds();
         let bounds_min = vector![bounds.x_min, bounds.y_min];
         let bounds_max = vector![bounds.x_max, bounds.y_max];
 
@@ -406,18 +407,22 @@ impl WidgetImpl for CanvasWidget {
     }
 
     fn snapshot(&self, snapshot: &gtk::Snapshot) {
-        let obj = self.obj();
+        let canvas = self.canvas.borrow();
 
-        // clip drawing to widget area
-        let bounds = graphene::Rect::new(0.0, 0.0, obj.width() as _, obj.height() as _);
-        snapshot.push_clip(&bounds);
+        if let Some(canvas) = canvas.as_ref() {
+            let obj = self.obj();
 
-        // draw actual canvas
-        let viewport = self.viewport.borrow();
-        self.actual.borrow().render(&viewport, snapshot);
+            // clip drawing to widget area
+            let bounds = graphene::Rect::new(0.0, 0.0, obj.width() as _, obj.height() as _);
+            snapshot.push_clip(&bounds);
 
-        // pop the clip
-        snapshot.pop();
+            // draw actual canvas
+            let viewport = self.viewport.borrow();
+            canvas.render(&viewport, snapshot);
+
+            // pop the clip
+            snapshot.pop();
+        }
     }
 }
 

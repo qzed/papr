@@ -9,6 +9,17 @@ pub struct Bounds {
     pub y_max: f64,
 }
 
+impl Bounds {
+    pub fn zero() -> Self {
+        Self {
+            x_min: 0.0,
+            y_min: 0.0,
+            x_max: 0.0,
+            y_max: 0.0,
+        }
+    }
+}
+
 impl From<Bounds> for graphene::Rect {
     fn from(b: Bounds) -> Self {
         graphene::Rect::new(
