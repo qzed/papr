@@ -1,4 +1,5 @@
 use crate::canvas::Canvas;
+use crate::pdf::Document;
 use crate::types::Bounds;
 
 use gtk::glib::clone;
@@ -7,6 +8,8 @@ use gtk::subclass::prelude::ObjectSubclassIsExt;
 use gtk::{gio, glib};
 
 use nalgebra::vector;
+
+use pdfium::doc::MetadataTag;
 
 use super::canvas::CanvasWidget;
 use super::viewport::ViewportWidget;
@@ -42,13 +45,17 @@ impl AppWindow {
             let data = data.to_vec();
 
             // TODO
-            println!("{:?}", data.len());
+            let doc = Document::load_bytes(data).unwrap();
+            println!("  title: {:?}", doc.pdf.metadata().get(MetadataTag::Title).unwrap().unwrap());
+
+            let page = doc.pdf.pages().get(0).unwrap();
+            let size = page.size();
 
             let bounds = Bounds {
                 x_min: 0.0,
                 y_min: 0.0,
-                x_max: 1000.0,
-                y_max: 1500.0,
+                x_max: size.x as _,
+                y_max: size.y as _,
             };
 
             let canvas = Canvas::new(bounds);

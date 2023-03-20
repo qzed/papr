@@ -1,6 +1,7 @@
 use gtk::{glib, prelude::ApplicationExtManual};
 
 mod canvas;
+mod pdf;
 mod types;
 mod ui;
 
