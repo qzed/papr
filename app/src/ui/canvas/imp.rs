@@ -85,6 +85,14 @@ impl CanvasWidget {
             .unwrap_or_else(Bounds::zero)
     }
 
+    fn scale_bounds(&self) -> (f64, f64) {
+        self.canvas
+            .borrow()
+            .as_ref()
+            .map(|c| c.scale_bounds())
+            .unwrap_or((1.0, 1.0))
+    }
+
     pub fn set_canvas(&self, canvas: Option<Canvas>) {
         *self.canvas.borrow_mut() = canvas
     }
@@ -130,6 +138,12 @@ impl ObjectImpl for CanvasWidget {
                 glib::ParamSpecDouble::builder("margin-bottom").build(),
                 glib::ParamSpecDouble::builder("offset-x").build(),
                 glib::ParamSpecDouble::builder("offset-y").build(),
+                glib::ParamSpecDouble::builder("scale-min")
+                    .read_only()
+                    .build(),
+                glib::ParamSpecDouble::builder("scale-max")
+                    .read_only()
+                    .build(),
                 glib::ParamSpecDouble::builder("scale").build(),
             ]
         });
@@ -262,7 +276,12 @@ impl ObjectImpl for CanvasWidget {
                 obj.notify_by_pspec(pspec);
             }
             "scale" => {
-                self.scale.set(value.get().unwrap());
+                let scale: f64 = value.get().unwrap();
+
+                let (min_scale, max_scale) = self.scale_bounds();
+                let scale = scale.clamp(min_scale, max_scale);
+
+                self.scale.set(scale);
 
                 // request an update
                 let obj = self.obj();
@@ -289,6 +308,8 @@ impl ObjectImpl for CanvasWidget {
             "margin-bottom" => self.margin.borrow().bottom.to_value(),
             "offset-x" => self.offset.borrow().x.to_value(),
             "offset-y" => self.offset.borrow().y.to_value(),
+            "scale-min" => self.scale_bounds().0.to_value(),
+            "scale-max" => self.scale_bounds().1.to_value(),
             "scale" => self.scale.get().to_value(),
             _ => unimplemented!(),
         }

@@ -35,6 +35,10 @@ impl Canvas {
         &self.bounds
     }
 
+    pub fn scale_bounds(&self) -> (f64, f64) {
+        (1e-2, 1e4)
+    }
+
     pub fn render(&self, vp: &Viewport, snapshot: &Snapshot) {
         // We have 3 coordinate systems:
         //

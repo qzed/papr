@@ -20,7 +20,7 @@ use gtk::{
 };
 use nalgebra::{vector, Vector2};
 
-use crate::types::{Margin, Bounds};
+use crate::types::{Bounds, Margin};
 
 #[derive(Debug, CompositeTemplate)]
 #[template(resource = "/io/mxnluz/paper/ui/viewport.ui")]
@@ -75,25 +75,27 @@ impl ViewportWidget {
     }
 
     pub fn canvas_margin(&self) -> Option<Margin> {
-        self.scroller.child().map(|c|
-            Margin {
-                left: c.property("margin-left"),
-                right: c.property("margin-right"),
-                top: c.property("margin-top"),
-                bottom: c.property("margin-bottom"),
-            }
-        )
+        self.scroller.child().map(|c| Margin {
+            left: c.property("margin-left"),
+            right: c.property("margin-right"),
+            top: c.property("margin-top"),
+            bottom: c.property("margin-bottom"),
+        })
     }
 
     pub fn canvas_bounds(&self) -> Option<Bounds> {
-        self.scroller.child().map(|c|
-            Bounds {
-                x_min: c.property("bounds-x-min"),
-                x_max: c.property("bounds-x-max"),
-                y_min: c.property("bounds-y-min"),
-                y_max: c.property("bounds-y-max"),
-            }
-        )
+        self.scroller.child().map(|c| Bounds {
+            x_min: c.property("bounds-x-min"),
+            x_max: c.property("bounds-x-max"),
+            y_min: c.property("bounds-y-min"),
+            y_max: c.property("bounds-y-max"),
+        })
+    }
+
+    pub fn canvas_scale_bounds(&self) -> Option<(f64, f64)> {
+        self.scroller
+            .child()
+            .map(|c| (c.property("scale-min"), c.property("scale-max")))
     }
 
     pub fn canvas_fit_width(&self) {
@@ -221,12 +223,14 @@ impl ObjectImpl for ViewportWidget {
                         // offset of the viewport in screen units
                         let offset = vp.canvas_offset().unwrap_or_default();
                         let scale = vp.canvas_scale().unwrap_or(1.0);
+                        let (scale_min, scale_max) = vp.canvas_scale_bounds().unwrap_or((1.0, 1.0));
 
                         // calculate fixpoint in document coordinates
                         let fixp_doc = (offset + fixp_screen) / scale;
 
                         // calculate new scale value
                         let scale = scale * (1.0 - dy * vp.scale_step);
+                        let scale = scale.clamp(scale_min, scale_max);
 
                         // calculate new viewport offset from fixpoint document coordinates
                         let offset = fixp_doc * scale - fixp_screen;
@@ -301,6 +305,9 @@ impl ObjectImpl for ViewportWidget {
                     let vp = obj.imp();
 
                     let scale = scale_start.get() * gesture_scale;
+
+                    let (scale_min, scale_max) = vp.canvas_scale_bounds().unwrap_or((1.0, 1.0));
+                    let scale = scale.clamp(scale_min, scale_max);
 
                     // new fixpoint position in screen coordinates (gesture center)
                     let center = ctrl
