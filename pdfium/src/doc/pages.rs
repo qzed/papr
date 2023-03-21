@@ -14,15 +14,15 @@ impl<'a> Pages<'a> {
     }
 
     pub fn count(&self) -> u32 {
-        let doc = self.doc.handle().as_ptr();
+        let doc = self.doc.handle().get();
         unsafe { self.lib.ftable().FPDF_GetPageCount(doc) as u32 }
     }
 
     pub fn get(&self, index: u32) -> Result<Page> {
-        let doc = self.doc.handle().as_ptr();
+        let doc = self.doc.handle().get();
 
         let page = unsafe { self.lib.ftable().FPDF_LoadPage(doc, index as _) };
-        let page = self.lib.assert_ptr(page)?;
+        let page = self.lib.assert_handle(page)?;
 
         let page = Page::new(self.lib.clone(), self.doc.clone(), page);
 
@@ -33,7 +33,7 @@ impl<'a> Pages<'a> {
     }
 
     pub fn get_label(&self, index: u32) -> Result<Option<String>> {
-        let doc = self.doc.handle().as_ptr();
+        let doc = self.doc.handle().get();
 
         // get length, including trailing zeros
         let len = unsafe {

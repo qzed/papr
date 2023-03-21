@@ -18,7 +18,7 @@ impl<'a> Metadata<'a> {
     }
 
     pub fn get_raw(&self, tag: &str) -> Result<Option<String>> {
-        let doc = self.doc.handle().as_ptr();
+        let doc = self.doc.handle().get();
         let tag = CString::new(tag).unwrap();
         let tag = tag.as_ptr();
 

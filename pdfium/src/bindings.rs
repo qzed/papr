@@ -1,5 +1,7 @@
 use std::path::Path;
 
+pub use crate::utils::sync::Handle;
+
 /// Raw pdfium function pointer table.
 pub type FnTable = pdfium_sys::libpdfium;
 

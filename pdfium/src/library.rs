@@ -1,6 +1,7 @@
-use crate::bindings::{Bindings, FnTable};
+use crate::bindings::{Bindings, FnTable, Handle};
 use crate::doc::{Document, DocumentBacking};
 use crate::io::fileaccess::ReaderAccess;
+use crate::utils::sync::Rc;
 use crate::{Error, ErrorCode, Result};
 
 use std::ffi::{c_void, CString};
@@ -8,7 +9,6 @@ use std::fs::File;
 use std::io::{Read, Seek};
 use std::path::{Path, PathBuf};
 use std::ptr::NonNull;
-use std::rc::Rc;
 
 #[derive(Debug, Default, Clone)]
 pub struct Config {
@@ -22,8 +22,20 @@ pub struct Library {
 }
 
 struct LibraryGuard {
-    ftable: FnTable,
+    ftable: FnTableWrapper,
 }
+
+#[cfg(not(feature = "sync"))]
+type FnTableWrapper = std::cell::RefCell<FnTable>;
+
+#[cfg(not(feature = "sync"))]
+pub type FnTableGuard<'a> = std::cell::Ref<'a, FnTable>;
+
+#[cfg(feature = "sync")]
+type FnTableWrapper = std::sync::Mutex<FnTable>;
+
+#[cfg(feature = "sync")]
+pub type FnTableGuard<'a> = std::sync::MutexGuard<'a, FnTable>;
 
 impl Library {
     pub fn init_with_bindings(bindings: Bindings, config: &Config) -> Result<Library> {
@@ -63,7 +75,7 @@ impl Library {
 
         // build library struct
         let inner = LibraryGuard {
-            ftable: bindings.ftable,
+            ftable: FnTableWrapper::new(bindings.ftable),
         };
 
         let lib = Library {
@@ -83,8 +95,8 @@ impl Library {
         Self::init_with_config(&Config::default())
     }
 
-    pub fn ftable(&self) -> &FnTable {
-        &self.inner.ftable
+    pub fn ftable(&self) -> FnTableGuard {
+        self.inner.ftable()
     }
 
     pub(crate) fn assert_status(&self) -> Result<()> {
@@ -93,9 +105,9 @@ impl Library {
         Ok(())
     }
 
-    pub(crate) fn assert_ptr<T>(&self, ptr: *mut T) -> Result<NonNull<T>> {
+    pub(crate) fn assert_handle<T>(&self, ptr: *mut T) -> Result<Handle<T>> {
         match NonNull::new(ptr) {
-            Some(ptr) => Ok(ptr),
+            Some(ptr) => Ok(Handle::new(ptr)),
             None => {
                 self.assert_status()?;
                 Err(ErrorCode::Unknown.into())
@@ -146,7 +158,7 @@ impl Library {
             self.ftable()
                 .FPDF_LoadCustomDocument(access.sys_ptr(), password)
         };
-        let handle = self.assert_ptr(handle)?;
+        let handle = self.assert_handle(handle)?;
 
         // FIXME: From pdfium docs:
         //   If PDFium is built with the XFA module, the application should
@@ -179,7 +191,7 @@ impl Library {
                 password,
             )
         };
-        let handle = self.assert_ptr(handle)?;
+        let handle = self.assert_handle(handle)?;
 
         // FIXME: From pdfium docs:
         //   If PDFium is built with the XFA module, the application should
@@ -193,9 +205,19 @@ impl Library {
     }
 }
 
+impl LibraryGuard {
+    fn ftable(&self) -> FnTableGuard {
+        #[cfg(not(feature = "sync"))]
+        return self.ftable.borrow();
+
+        #[cfg(feature = "sync")]
+        return self.ftable.lock().unwrap();
+    }
+}
+
 impl Drop for LibraryGuard {
     fn drop(&mut self) {
-        unsafe { self.ftable.FPDF_DestroyLibrary() };
+        unsafe { self.ftable().FPDF_DestroyLibrary() };
     }
 }
 

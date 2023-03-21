@@ -126,8 +126,8 @@ where
     // start render
     let status = unsafe {
         page.library().ftable().FPDF_RenderPageBitmap_Start(
-            bitmap.handle().as_ptr(),
-            page.handle().as_ptr(),
+            bitmap.handle().get(),
+            page.handle().get(),
             layout.start.x,
             layout.start.y,
             layout.size.x,
@@ -176,8 +176,8 @@ where
         page.library()
             .ftable()
             .FPDF_RenderPageBitmapWithColorScheme_Start(
-                bitmap.handle().as_ptr(),
-                page.handle().as_ptr(),
+                bitmap.handle().get(),
+                page.handle().get(),
                 layout.start.x,
                 layout.start.y,
                 layout.size.x,
@@ -217,7 +217,7 @@ where
     let status = unsafe {
         page.library()
             .ftable()
-            .FPDF_RenderPage_Continue(page.handle().as_ptr(), &mut pause)
+            .FPDF_RenderPage_Continue(page.handle().get(), &mut pause)
     };
 
     // check for panic in callback
@@ -236,7 +236,7 @@ pub fn render_finish(page: &Page) -> Result<ProgressiveRenderStatus> {
     let status = unsafe {
         page.library()
             .ftable()
-            .FPDF_RenderPage_Continue(page.handle().as_ptr(), std::ptr::null_mut())
+            .FPDF_RenderPage_Continue(page.handle().get(), std::ptr::null_mut())
     };
 
     // check for error in render call
@@ -249,7 +249,7 @@ pub fn render_close(page: &Page) {
     unsafe {
         page.library()
             .ftable()
-            .FPDF_RenderPage_Close(page.handle().as_ptr());
+            .FPDF_RenderPage_Close(page.handle().get());
     }
 }
 

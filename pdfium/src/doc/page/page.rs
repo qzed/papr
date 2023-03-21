@@ -1,19 +1,19 @@
+use crate::bindings::Handle;
 use crate::bitmap::{Bitmap, ColorScheme};
 use crate::doc::Document;
 use crate::types::{Point2, Rect, Vector2};
+use crate::utils::sync::Rc;
 use crate::{Library, Result};
 
 use super::render;
 use super::{PageRenderLayout, PageRotation, ProgressiveRender, RenderFlags};
 
 use std::ffi::{c_double, c_int};
-use std::ptr::NonNull;
-use std::rc::Rc;
 
 use nalgebra::{matrix, vector, Affine2, RealField};
 use simba::scalar::SupersetOf;
 
-pub type PageHandle = NonNull<pdfium_sys::fpdf_page_t__>;
+pub type PageHandle = Handle<pdfium_sys::fpdf_page_t__>;
 
 #[derive(Clone)]
 pub struct Page {
@@ -35,8 +35,8 @@ impl Page {
         }
     }
 
-    pub fn handle(&self) -> PageHandle {
-        self.inner.handle
+    pub fn handle(&self) -> &PageHandle {
+        &self.inner.handle
     }
 
     pub fn document(&self) -> &Document {
@@ -51,7 +51,7 @@ impl Page {
         unsafe {
             self.library()
                 .ftable()
-                .FPDF_GetPageWidthF(self.handle().as_ptr())
+                .FPDF_GetPageWidthF(self.handle().get())
         }
     }
 
@@ -59,7 +59,7 @@ impl Page {
         unsafe {
             self.library()
                 .ftable()
-                .FPDF_GetPageHeightF(self.handle().as_ptr())
+                .FPDF_GetPageHeightF(self.handle().get())
         }
     }
 
@@ -68,7 +68,7 @@ impl Page {
     }
 
     pub fn bounding_box(&self) -> Result<Rect> {
-        let page = self.handle().as_ptr();
+        let page = self.handle().get();
 
         let mut rect = pdfium_sys::FS_RECTF {
             left: 0.0,
@@ -92,7 +92,7 @@ impl Page {
         layout: &PageRenderLayout,
         device: Point2<i32>,
     ) -> Result<Point2<f32>> {
-        let handle = self.handle().as_ptr();
+        let handle = self.handle().get();
 
         let mut page_x: c_double = 0.0;
         let mut page_y: c_double = 0.0;
@@ -121,7 +121,7 @@ impl Page {
         layout: &PageRenderLayout,
         page: Point2<f32>,
     ) -> Result<Point2<i32>> {
-        let handle = self.handle().as_ptr();
+        let handle = self.handle().get();
 
         let mut device_x: c_int = 0;
         let mut device_y: c_int = 0;
@@ -211,8 +211,8 @@ impl Page {
         layout: &PageRenderLayout,
         flags: RenderFlags,
     ) -> Result<()> {
-        let page = self.handle().as_ptr();
-        let bitmap = bitmap.handle().as_ptr();
+        let page = self.handle().get();
+        let bitmap = bitmap.handle().get();
 
         unsafe {
             self.library().ftable().FPDF_RenderPageBitmap(
@@ -267,8 +267,8 @@ impl Page {
         clip: &Rect,
         flags: RenderFlags,
     ) -> Result<()> {
-        let page = self.handle().as_ptr();
-        let bitmap = bitmap.handle().as_ptr();
+        let page = self.handle().get();
+        let bitmap = bitmap.handle().get();
         let matrix = crate::types::affine_to_pdfmatrix(transform);
         let clip = pdfium_sys::FS_RECTF::from(clip);
 
@@ -348,6 +348,6 @@ impl Page {
 
 impl Drop for PageInner {
     fn drop(&mut self) {
-        unsafe { self.lib.ftable().FPDF_ClosePage(self.handle.as_ptr()) };
+        unsafe { self.lib.ftable().FPDF_ClosePage(self.handle.get()) };
     }
 }

@@ -1,9 +1,9 @@
+use crate::bindings::Handle;
 use crate::{Error, Library, Result};
 
 use std::ffi::c_void;
-use std::ptr::NonNull;
 
-pub type BitmapHandle = NonNull<pdfium_sys::fpdf_bitmap_t__>;
+pub type BitmapHandle = Handle<pdfium_sys::fpdf_bitmap_t__>;
 
 pub struct Owned;
 
@@ -29,7 +29,7 @@ impl Bitmap<Owned> {
                 0,
             )
         };
-        let handle = lib.assert_ptr(handle)?;
+        let handle = lib.assert_handle(handle)?;
 
         let bitmap = Bitmap {
             lib,
@@ -71,7 +71,7 @@ where
                 stride as _,
             )
         };
-        let handle = lib.assert_ptr(handle)?;
+        let handle = lib.assert_handle(handle)?;
 
         let bitmap = Bitmap {
             lib,
@@ -84,8 +84,8 @@ where
 }
 
 impl<C> Bitmap<C> {
-    pub fn handle(&self) -> BitmapHandle {
-        self.handle
+    pub fn handle(&self) -> &BitmapHandle {
+        &self.handle
     }
 
     pub fn library(&self) -> &Library {
@@ -93,29 +93,29 @@ impl<C> Bitmap<C> {
     }
 
     pub fn width(&self) -> u32 {
-        let handle = self.handle().as_ptr();
+        let handle = self.handle().get();
         unsafe { self.library().ftable().FPDFBitmap_GetWidth(handle) as _ }
     }
 
     pub fn height(&self) -> u32 {
-        let handle = self.handle().as_ptr();
+        let handle = self.handle().get();
         unsafe { self.library().ftable().FPDFBitmap_GetHeight(handle) as _ }
     }
 
     pub fn stride(&self) -> u32 {
-        let handle = self.handle().as_ptr();
+        let handle = self.handle().get();
         unsafe { self.library().ftable().FPDFBitmap_GetStride(handle) as _ }
     }
 
     pub fn format(&self) -> Option<BitmapFormat> {
-        let handle = self.handle().as_ptr();
+        let handle = self.handle().get();
         let format = unsafe { self.library().ftable().FPDFBitmap_GetFormat(handle) };
 
         BitmapFormat::from_i32(format)
     }
 
     pub fn buf(&self) -> &[u8] {
-        let handle = self.handle().as_ptr();
+        let handle = self.handle().get();
 
         let len = self.stride() as usize * self.height() as usize;
         let data = unsafe { self.library().ftable().FPDFBitmap_GetBuffer(handle) };
@@ -124,7 +124,7 @@ impl<C> Bitmap<C> {
     }
 
     pub fn buf_mut(&mut self) -> &mut [u8] {
-        let handle = self.handle().as_ptr();
+        let handle = self.handle().get();
 
         let len = self.stride() as usize * self.height() as usize;
         let data = unsafe { self.library().ftable().FPDFBitmap_GetBuffer(handle) };
@@ -135,7 +135,7 @@ impl<C> Bitmap<C> {
     pub fn fill_rect(&mut self, left: u32, top: u32, width: u32, height: u32, color: Color) {
         unsafe {
             self.library().ftable().FPDFBitmap_FillRect(
-                self.handle().as_ptr(),
+                self.handle().get(),
                 left as _,
                 top as _,
                 width as _,
@@ -148,7 +148,7 @@ impl<C> Bitmap<C> {
 
 impl<C> Drop for Bitmap<C> {
     fn drop(&mut self) {
-        unsafe { self.lib.ftable().FPDFBitmap_Destroy(self.handle.as_ptr()) };
+        unsafe { self.lib.ftable().FPDFBitmap_Destroy(self.handle.get()) };
     }
 }
 

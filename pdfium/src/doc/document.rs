@@ -1,12 +1,11 @@
 use super::{Metadata, Pages, Version};
 
+use crate::bindings::Handle;
 use crate::io::fileaccess::ReaderAccess;
+use crate::utils::sync::{Rc, Unused};
 use crate::Library;
 
-use std::ptr::NonNull;
-use std::rc::Rc;
-
-pub type DocumentHandle = NonNull<pdfium_sys::fpdf_document_t__>;
+pub type DocumentHandle = Handle<pdfium_sys::fpdf_document_t__>;
 
 #[derive(Clone)]
 pub struct Document {
@@ -20,7 +19,7 @@ struct DocumentInner {
     // This is the underlying document storage. It needs to be kept alive for
     // the lifetime of the whole document and must not be modified.
     #[allow(unused)]
-    backing: DocumentBacking,
+    backing: Unused<DocumentBacking>,
 }
 
 #[allow(unused)]
@@ -34,7 +33,7 @@ impl Document {
         let inner = DocumentInner {
             lib,
             handle,
-            backing,
+            backing: Unused::new(backing),
         };
 
         Self {
@@ -42,8 +41,8 @@ impl Document {
         }
     }
 
-    pub fn handle(&self) -> DocumentHandle {
-        self.inner.handle
+    pub fn handle(&self) -> &DocumentHandle {
+        &self.inner.handle
     }
 
     pub fn library(&self) -> &Library {
@@ -51,7 +50,7 @@ impl Document {
     }
 
     pub fn version(&self) -> Version {
-        let lib = self.handle().as_ptr();
+        let lib = self.handle().get();
 
         let mut version: i32 = 0;
         let success = unsafe {
@@ -80,6 +79,6 @@ impl Document {
 
 impl Drop for DocumentInner {
     fn drop(&mut self) {
-        unsafe { self.lib.ftable().FPDF_CloseDocument(self.handle.as_ptr()) };
+        unsafe { self.lib.ftable().FPDF_CloseDocument(self.handle.get()) };
     }
 }
