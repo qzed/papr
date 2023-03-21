@@ -133,35 +133,43 @@ impl Canvas {
             // page offset in display pixels
             let page_offs_d = page_offs_v - page_offs_v_clipped;
 
-            // allocate bitmap
-            let mut bmp = Bitmap::uninitialized(
-                page.library().clone(),
-                page_size_v_clipped.x as _,
-                page_size_v_clipped.y as _,
-                BitmapFormat::Bgra,
-            )
-            .unwrap();
+            // allocate buffer to which the PDF is being rendered
+            let stride = page_size_v_clipped.x as usize * 4;
+            let mut buffer = vec![0; stride * page_size_v_clipped.y as usize];
 
-            // set up render layout
-            let layout = PageRenderLayout {
-                start: page_offs_d.into(),
-                size: page_size_v,
-                rotate: PageRotation::None,
-            };
+            // render the PDF page
+            {
+                // wrap buffer in bitmap
+                let mut bmp = Bitmap::from_buf(
+                    page.library().clone(),
+                    page_size_v_clipped.x as _,
+                    page_size_v_clipped.y as _,
+                    BitmapFormat::Bgra,
+                    &mut buffer[..],
+                    stride as _,
+                )
+                .unwrap();
 
-            // render page to bitmap
-            let flags = RenderFlags::Annotations;
-            page.render(&mut bmp, &layout, flags).unwrap();
+                // set up render layout
+                let layout = PageRenderLayout {
+                    start: page_offs_d.into(),
+                    size: page_size_v,
+                    rotate: PageRotation::None,
+                };
 
-            // convert rendered bitmap to GTK texture
-            let bytes = glib::Bytes::from(bmp.buf());
+                // render page to bitmap
+                let flags = RenderFlags::LcdText | RenderFlags::Annotations;
+                page.render(&mut bmp, &layout, flags).unwrap();
+            }
 
+            // transfer buffer ownership to GTK/GDK
+            let bytes = glib::Bytes::from_owned(buffer);
             let texture = gdk::MemoryTexture::new(
                 page_size_v_clipped.x as _,
                 page_size_v_clipped.y as _,
                 gdk::MemoryFormat::B8g8r8a8,
                 &bytes,
-                bmp.stride() as _,
+                stride as _,
             );
 
             // draw background
