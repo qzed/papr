@@ -5,14 +5,15 @@ authors = ["Maximilian Luz <m@mxnluz.io>"]
 edition = "2021"
 
 [features]
-default = ["sync"]
+default = ["sync", "dylib-require-all"]
 sync = []
+dylib-require-all = ["pdfium-sys/dylib-require-all"]
 
 [dependencies]
 bitflags = "2.0.1"
 libloading = "0.7.4"
 nalgebra = "0.32.2"
-pdfium-sys = { path = "../pdfium-sys" }
+pdfium-sys = { path = "../pdfium-sys", default-features = false }
 simba = "0.8.0"
 thiserror = "1.0.39"
 
