@@ -30,7 +30,7 @@ impl Canvas {
             let size = page.size();
 
             x = x.max(size.x as f64);
-            y = y + size.y as f64;
+            y += size.y as f64;
 
             if i > 0 {
                 y += page_space;
@@ -98,10 +98,8 @@ impl Canvas {
 
             // transformation matrix: page to canvas
             let m_ptc = {
-                let m_trans = Matrix3::new_translation(&vector![0.0, offs_y]);
-                let m_trans = Affine2::from_matrix_unchecked(m_trans);
-
-                m_trans
+                let m = Matrix3::new_translation(&vector![0.0, offs_y]);
+                Affine2::from_matrix_unchecked(m)
             };
 
             // transformation matrix: page to viewport
@@ -165,8 +163,8 @@ impl Canvas {
             // transfer buffer ownership to GTK/GDK
             let bytes = glib::Bytes::from_owned(buffer);
             let texture = gdk::MemoryTexture::new(
-                page_size_v_clipped.x as _,
-                page_size_v_clipped.y as _,
+                page_size_v_clipped.x,
+                page_size_v_clipped.y,
                 gdk::MemoryFormat::B8g8r8a8,
                 &bytes,
                 stride as _,
