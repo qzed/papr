@@ -110,8 +110,8 @@ impl Canvas {
             let page_size_v = m_ptv * page_size;
 
             // round coordinates for pixel-perfect rendering
-            let page_offs_v = point![page_offs_v.x.round() as i32, page_offs_v.y.round() as i32];
-            let page_size_v = vector![page_size_v.x.round() as i32, page_size_v.y.round() as i32];
+            let page_offs_v = point![page_offs_v.x.round() as i64, page_offs_v.y.round() as i64];
+            let page_size_v = vector![page_size_v.x.round() as i64, page_size_v.y.round() as i64];
 
             // update page offset
             offs_y += page_size.y + self.page_space;
@@ -119,8 +119,8 @@ impl Canvas {
             // clip page bounds to viewport
             let page_offs_v_clipped = point![page_offs_v.x.max(0), page_offs_v.y.max(0)];
             let page_size_v_clipped = vector![
-                (page_offs_v.x + page_size_v.x).min(vp.size.x as i32) - page_offs_v_clipped.x,
-                (page_offs_v.y + page_size_v.y).min(vp.size.y as i32) - page_offs_v_clipped.y
+                (page_offs_v.x + page_size_v.x).min(vp.size.x as i64) - page_offs_v_clipped.x,
+                (page_offs_v.y + page_size_v.y).min(vp.size.y as i64) - page_offs_v_clipped.y
             ];
 
             // check if page is in view
@@ -150,8 +150,8 @@ impl Canvas {
 
                 // set up render layout
                 let layout = PageRenderLayout {
-                    start: page_offs_d.into(),
-                    size: page_size_v,
+                    start: nalgebra::convert::<_, Vector2<i32>>(page_offs_d).into(),
+                    size: nalgebra::convert(page_size_v),
                     rotate: PageRotation::None,
                 };
 
@@ -163,8 +163,8 @@ impl Canvas {
             // transfer buffer ownership to GTK/GDK
             let bytes = glib::Bytes::from_owned(buffer);
             let texture = gdk::MemoryTexture::new(
-                page_size_v_clipped.x,
-                page_size_v_clipped.y,
+                page_size_v_clipped.x as i32,
+                page_size_v_clipped.y as i32,
                 gdk::MemoryFormat::B8g8r8a8,
                 &bytes,
                 stride as _,
