@@ -3,7 +3,7 @@ use gtk::traits::SnapshotExt;
 use gtk::Snapshot;
 use gtk::{gdk, glib};
 
-use nalgebra::{point, vector, Affine2, Matrix3, Vector2};
+use nalgebra::{point, vector, Point2, Similarity2, Translation2, Vector2};
 
 use pdfium::bitmap::{Bitmap, BitmapFormat};
 use pdfium::doc::{Page, PageRenderLayout, PageRotation, RenderFlags};
@@ -77,16 +77,12 @@ impl Canvas {
         //   defined by the page offset in the canvas.
 
         // TODO:
-        // - further optimizations (tiling?)
+        //   - page shadow
 
         // transformation matrix: canvas to viewport
         let m_ctv = {
-            let m_scale = Matrix3::new_scaling(vp.scale);
-            let m_scale = Affine2::from_matrix_unchecked(m_scale);
-
-            let m_trans = Matrix3::new_translation(&-vp.offset.coords);
-            let m_trans = Affine2::from_matrix_unchecked(m_trans);
-
+            let m_scale = Similarity2::from_scaling(vp.scale);
+            let m_trans = Translation2::from(-vp.offset.coords);
             m_trans * m_scale
         };
 
@@ -97,10 +93,7 @@ impl Canvas {
             let page_size: Vector2<f64> = nalgebra::convert(page.size());
 
             // transformation matrix: page to canvas
-            let m_ptc = {
-                let m = Matrix3::new_translation(&vector![0.0, offs_y]);
-                Affine2::from_matrix_unchecked(m)
-            };
+            let m_ptc = Translation2::new(0.0, offs_y);
 
             // transformation matrix: page to viewport
             let m_ptv = m_ctv * m_ptc;
