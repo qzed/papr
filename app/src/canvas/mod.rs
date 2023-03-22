@@ -11,50 +11,28 @@ use pdfium::doc::{Page, PageRenderLayout, PageRotation, RenderFlags};
 use crate::pdf::Document;
 use crate::types::{Bounds, Viewport};
 
+mod layout;
+pub use layout::{HorizontalLayout, Layout, LayoutProvider, VerticalLayout};
+
 pub struct Canvas {
     pages: Vec<Page>,
-    bounds: Bounds<f64>,
-    page_space: f64,
+    layout: Layout,
 }
 
 impl Canvas {
     pub fn create(doc: Document) -> Self {
-        let mut pages = Vec::new();
+        let pages: Vec<_> = (0..(doc.pdf.pages().count()))
+            .map(|i| doc.pdf.pages().get(i).unwrap())
+            .collect();
 
-        let page_space = 10.0;
-        let mut x: f64 = 0.0;
-        let mut y: f64 = 0.0;
+        let layout_provider = VerticalLayout;
+        let layout = layout_provider.compute(&pages, 10.0);
 
-        for i in 0..(doc.pdf.pages().count()) {
-            let page = doc.pdf.pages().get(i).unwrap();
-            let size = page.size();
-
-            x = x.max(size.x as f64);
-            y += size.y as f64;
-
-            if i > 0 {
-                y += page_space;
-            }
-
-            pages.push(page);
-        }
-
-        let bounds = Bounds {
-            x_min: 0.0,
-            y_min: 0.0,
-            x_max: x,
-            y_max: y,
-        };
-
-        Self {
-            pages,
-            bounds,
-            page_space,
-        }
+        Self { pages, layout }
     }
 
     pub fn bounds(&self) -> &Bounds<f64> {
-        &self.bounds
+        &self.layout.bounds
     }
 
     pub fn scale_bounds(&self) -> (f64, f64) {
@@ -87,13 +65,11 @@ impl Canvas {
         };
 
         // page rendering
-        let mut offs_y = 0.0;
-
-        for page in &self.pages {
+        for (page, offs) in self.pages.iter().zip(&self.layout.offsets) {
             let page_size: Vector2<f64> = nalgebra::convert(page.size());
 
             // transformation matrix: page to canvas
-            let m_ptc = Translation2::new(0.0, offs_y);
+            let m_ptc = Translation2::from(*offs);
 
             // transformation matrix: page to viewport
             let m_ptv = m_ctv * m_ptc;
@@ -105,9 +81,6 @@ impl Canvas {
             // round coordinates for pixel-perfect rendering
             let page_offs_v = point![page_offs_v.x.round() as i64, page_offs_v.y.round() as i64];
             let page_size_v = vector![page_size_v.x.round() as i64, page_size_v.y.round() as i64];
-
-            // update page offset
-            offs_y += page_size.y + self.page_space;
 
             // clip page bounds to viewport
             let page_offs_v_clipped = point![page_offs_v.x.max(0), page_offs_v.y.max(0)];
