@@ -74,7 +74,7 @@ impl ViewportWidget {
         }
     }
 
-    pub fn canvas_margin(&self) -> Option<Margin> {
+    pub fn canvas_margin(&self) -> Option<Margin<f64>> {
         self.scroller.child().map(|c| Margin {
             left: c.property("margin-left"),
             right: c.property("margin-right"),
@@ -83,7 +83,7 @@ impl ViewportWidget {
         })
     }
 
-    pub fn canvas_bounds(&self) -> Option<Bounds> {
+    pub fn canvas_bounds(&self) -> Option<Bounds<f64>> {
         self.scroller.child().map(|c| Bounds {
             x_min: c.property("bounds-x-min"),
             x_max: c.property("bounds-x-max"),

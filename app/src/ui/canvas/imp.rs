@@ -29,7 +29,7 @@ pub struct CanvasWidget {
     vadjustment_handler: Cell<Option<glib::SignalHandlerId>>,
 
     // properties for canvas
-    margin: RefCell<Margin>,
+    margin: RefCell<Margin<f64>>,
 
     // properties for viewport
     offset: RefCell<Point2<f64>>,
@@ -77,7 +77,7 @@ impl CanvasWidget {
         }
     }
 
-    fn bounds(&self) -> Bounds {
+    fn bounds(&self) -> Bounds<f64> {
         self.canvas
             .borrow()
             .as_ref()

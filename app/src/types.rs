@@ -1,27 +1,30 @@
+use std::ops::Add;
+
 use gtk::graphene;
-use nalgebra::{Vector2, Point2};
+use nalgebra::{Point2, Scalar, Vector2};
+use num_traits::Zero;
 
 #[derive(Debug, Clone, Copy)]
-pub struct Bounds {
-    pub x_min: f64,
-    pub y_min: f64,
-    pub x_max: f64,
-    pub y_max: f64,
+pub struct Bounds<T> {
+    pub x_min: T,
+    pub y_min: T,
+    pub x_max: T,
+    pub y_max: T,
 }
 
-impl Bounds {
+impl<T: num_traits::Zero> Bounds<T> {
     pub fn zero() -> Self {
         Self {
-            x_min: 0.0,
-            y_min: 0.0,
-            x_max: 0.0,
-            y_max: 0.0,
+            x_min: T::zero(),
+            y_min: T::zero(),
+            x_max: T::zero(),
+            y_max: T::zero(),
         }
     }
 }
 
-impl From<Bounds> for graphene::Rect {
-    fn from(b: Bounds) -> Self {
+impl From<Bounds<f64>> for graphene::Rect {
+    fn from(b: Bounds<f64>) -> Self {
         graphene::Rect::new(
             b.x_min as _,
             b.y_min as _,
@@ -31,12 +34,49 @@ impl From<Bounds> for graphene::Rect {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default)]
-pub struct Margin {
-    pub left: f64,
-    pub right: f64,
-    pub top: f64,
-    pub bottom: f64,
+impl<T> Add<Vector2<T>> for Bounds<T>
+where
+    T: Scalar + Copy,
+    T: Add<T, Output = T>,
+{
+    type Output = Bounds<T>;
+
+    fn add(self, offset: Vector2<T>) -> Self::Output {
+        Self {
+            x_min: self.x_min + offset.x,
+            y_min: self.y_min + offset.y,
+            x_max: self.x_max + offset.x,
+            y_max: self.y_max + offset.y,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Margin<T> {
+    pub left: T,
+    pub right: T,
+    pub top: T,
+    pub bottom: T,
+}
+
+impl<T> Margin<T> {
+    pub fn zero() -> Self
+    where
+        T: Zero,
+    {
+        Self {
+            left: T::zero(),
+            right: T::zero(),
+            top: T::zero(),
+            bottom: T::zero(),
+        }
+    }
+}
+
+impl<T: Zero> Default for Margin<T> {
+    fn default() -> Self {
+        Self::zero()
+    }
 }
 
 #[derive(Debug)]

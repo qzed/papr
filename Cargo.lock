@@ -973,6 +973,7 @@ dependencies = [
  "gtk4",
  "libadwaita",
  "nalgebra",
+ "num-traits",
  "pdfium",
 ]
 

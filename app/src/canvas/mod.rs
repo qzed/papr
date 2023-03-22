@@ -13,7 +13,7 @@ use crate::types::{Bounds, Viewport};
 
 pub struct Canvas {
     pages: Vec<Page>,
-    bounds: Bounds,
+    bounds: Bounds<f64>,
     page_space: f64,
 }
 
@@ -53,7 +53,7 @@ impl Canvas {
         }
     }
 
-    pub fn bounds(&self) -> &Bounds {
+    pub fn bounds(&self) -> &Bounds<f64> {
         &self.bounds
     }
 
