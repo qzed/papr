@@ -34,7 +34,7 @@ impl Canvas {
         let layout = layout_provider.compute(&pages, 10.0);
 
         let tile_size = vector![512, 512];
-        let pool = BufferPool::new(None, (tile_size.x * tile_size.y * 4) as _);
+        let pool = BufferPool::new(Some(64), (tile_size.x * tile_size.y * 4) as _);
 
         Self {
             pages,

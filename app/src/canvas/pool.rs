@@ -10,6 +10,7 @@ struct BufferPoolInner {
     max_size: Option<usize>,
     buf_size: usize,
     storage: Vec<Box<[u8]>>,
+    count: usize,
 }
 
 impl BufferPool {
@@ -18,6 +19,7 @@ impl BufferPool {
             max_size,
             buf_size,
             storage: Vec::new(),
+            count: 0,
         };
 
         BufferPool {
@@ -31,19 +33,23 @@ impl BufferPool {
 
             if let Some(mut data) = pool.storage.pop() {
                 log::trace!(
-                    "allocating buffer {:?} from pool ({} remain)",
+                    "allocating buffer {:?} from pool ({} total, {} cached)",
                     data.as_ptr(),
-                    pool.storage.len()
+                    pool.count,
+                    pool.storage.len(),
                 );
 
                 data.fill(0);
                 data
             } else {
                 let data = vec![0; pool.buf_size].into_boxed_slice();
+                pool.count += 1;
 
                 log::trace!(
-                    "allocating buffer {:?} from global allocator",
-                    data.as_ptr()
+                    "allocating buffer {:?} from global allocator ({} total, {} cached)",
+                    data.as_ptr(),
+                    pool.count,
+                    pool.storage.len(),
                 );
 
                 data
@@ -56,16 +62,25 @@ impl BufferPool {
     fn reclaim(&self, data: Box<[u8]>) {
         let mut pool = self.inner.lock().unwrap();
 
-        if pool.max_size.is_none() || pool.storage.len() < pool.max_size.unwrap() {
+        if pool.max_size.is_none() || pool.count < pool.max_size.unwrap() {
             log::trace!(
-                "reclaiming buffer {:?} ({} available)",
+                "reclaiming buffer {:?} ({} total, {} cached)",
                 data.as_ptr(),
+                pool.count,
                 pool.storage.len() + 1,
             );
 
             pool.storage.push(data);
         } else {
-            log::trace!("dropping buffer {:?}", data.as_ptr());
+            pool.count -= 1;
+
+            log::trace!(
+                "dropping buffer {:?} ({} total, {} cached)",
+                data.as_ptr(),
+                pool.count,
+                pool.storage.len(),
+            );
+
             drop(data);
         }
     }
