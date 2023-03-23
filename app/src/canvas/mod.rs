@@ -14,9 +14,14 @@ use crate::types::{Bounds, Rect, Viewport};
 mod layout;
 pub use layout::{HorizontalLayout, Layout, LayoutProvider, VerticalLayout};
 
+mod pool;
+use pool::BufferPool;
+
 pub struct Canvas {
     pages: Vec<Page>,
     layout: Layout,
+    tile_size: Vector2<i64>,
+    pool: BufferPool,
 }
 
 impl Canvas {
@@ -28,7 +33,15 @@ impl Canvas {
         let layout_provider = VerticalLayout;
         let layout = layout_provider.compute(&pages, 10.0);
 
-        Self { pages, layout }
+        let tile_size = vector![512, 512];
+        let pool = BufferPool::new(None, (tile_size.x * tile_size.y * 4) as _);
+
+        Self {
+            pages,
+            layout,
+            tile_size,
+            pool,
+        }
     }
 
     pub fn bounds(&self) -> &Bounds<f64> {
@@ -97,7 +110,6 @@ impl Canvas {
             snapshot.append_color(&gdk::RGBA::new(1.0, 1.0, 1.0, 1.0), &page_clipped.into());
 
             // tiled rendering (for now: very inefficient)
-            let tile_size = vector![512, 512];
 
             // viewport bounds relative to the page in pixels (area of page visible on screen)
             let visible_page = Rect::new(-page_rect.offs, na::convert_unchecked(vp.r.size))
@@ -106,29 +118,29 @@ impl Canvas {
 
             // tile bounds
             let tiles = Bounds {
-                x_min: visible_page.x_min / tile_size.x,
-                y_min: visible_page.y_min / tile_size.y,
-                x_max: (visible_page.x_max + tile_size.x - 1) / tile_size.x,
-                y_max: (visible_page.y_max + tile_size.y - 1) / tile_size.y,
+                x_min: visible_page.x_min / self.tile_size.x,
+                y_min: visible_page.y_min / self.tile_size.y,
+                x_max: (visible_page.x_max + self.tile_size.x - 1) / self.tile_size.x,
+                y_max: (visible_page.y_max + self.tile_size.y - 1) / self.tile_size.y,
             };
 
             snapshot.push_clip(&screen_rect.into());
 
             for ix in tiles.range_x() {
                 for iy in tiles.range_y() {
-                    let tile_offs = vector![ix, iy].component_mul(&tile_size);
+                    let tile_offs = vector![ix, iy].component_mul(&self.tile_size);
 
                     // allocate tile bitmap buffer
-                    let stride = tile_size.x as usize * 4;
-                    let mut buffer = vec![0; stride * tile_size.y as usize];
+                    let stride = self.tile_size.x as usize * 4;
+                    let mut buffer = self.pool.alloc();
 
                     // render to tile
                     {
                         // wrap buffer in bitmap
                         let mut bmp = Bitmap::from_buf(
                             page.library().clone(),
-                            tile_size.x as _,
-                            tile_size.y as _,
+                            self.tile_size.x as _,
+                            self.tile_size.y as _,
                             BitmapFormat::Bgra,
                             &mut buffer[..],
                             stride as _,
@@ -150,8 +162,8 @@ impl Canvas {
                     // transfer buffer ownership to GTK/GDK
                     let bytes = glib::Bytes::from_owned(buffer);
                     let texture = gdk::MemoryTexture::new(
-                        tile_size.x as _,
-                        tile_size.y as _,
+                        self.tile_size.x as _,
+                        self.tile_size.y as _,
                         gdk::MemoryFormat::B8g8r8a8,
                         &bytes,
                         stride as _,
@@ -160,7 +172,7 @@ impl Canvas {
                     // draw background and page contents
                     let tile_screen_rect = Rect {
                         offs: page_rect.offs + tile_offs,
-                        size: tile_size,
+                        size: self.tile_size,
                     };
                     snapshot.append_texture(&texture, &tile_screen_rect.into());
                 }
