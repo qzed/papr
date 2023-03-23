@@ -112,14 +112,45 @@ impl<T: Scalar> Rect<T> {
     pub fn clip(&self, other: &Rect<T>) -> Self
     where
         T: Copy,
-        T: Ord,
+        T: PartialOrd,
         T: Add<T, Output = T>,
         T: Sub<T, Output = T>,
     {
-        let offs = point![self.offs.x.max(other.offs.x), self.offs.y.max(other.offs.y)];
+        fn min<T>(a: T, b: T) -> T
+        where
+            T: Copy,
+            T: PartialOrd,
+            T: Add<T, Output = T>,
+            T: Sub<T, Output = T>,
+        {
+            if a < b {
+                a
+            } else {
+                b
+            }
+        }
+
+        fn max<T>(a: T, b: T) -> T
+        where
+            T: Copy,
+            T: PartialOrd,
+            T: Add<T, Output = T>,
+            T: Sub<T, Output = T>,
+        {
+            if a > b {
+                a
+            } else {
+                b
+            }
+        }
+
+        let offs = point![
+            max(self.offs.x, other.offs.x),
+            max(self.offs.y, other.offs.y)
+        ];
         let size = vector![
-            (self.offs.x + self.size.x).min(other.offs.x + other.size.x) - offs.x,
-            (self.offs.y + self.size.y).min(other.offs.y + other.size.y) - offs.y
+            min(self.offs.x + self.size.x, other.offs.x + other.size.x) - offs.x,
+            min(self.offs.y + self.size.y, other.offs.y + other.size.y) - offs.y
         ];
 
         Self { offs, size }
