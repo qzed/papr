@@ -15,7 +15,7 @@ use gtk::{
 use nalgebra::{point, vector, Point2};
 
 use crate::canvas::Canvas;
-use crate::types::{Bounds, Margin, Viewport};
+use crate::types::{Bounds, Margin, Rect, Viewport};
 
 pub struct CanvasWidget {
     // properties for scolling
@@ -68,8 +68,10 @@ impl CanvasWidget {
             scale: Cell::new(scale),
 
             viewport: RefCell::new(Viewport {
-                size: vector![600.0, 800.0],
-                offset,
+                r: Rect {
+                    offs: offset,
+                    size: vector![600.0, 800.0],
+                },
                 scale,
             }),
 
@@ -426,8 +428,8 @@ impl WidgetImpl for CanvasWidget {
 
         // update render state
         let mut viewport = self.viewport.borrow_mut();
-        viewport.offset = offset;
-        viewport.size = viewport_size;
+        viewport.r.offs = offset;
+        viewport.r.size = viewport_size;
         viewport.scale = scale;
     }
 
