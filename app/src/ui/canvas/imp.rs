@@ -434,9 +434,9 @@ impl WidgetImpl for CanvasWidget {
     }
 
     fn snapshot(&self, snapshot: &gtk::Snapshot) {
-        let canvas = self.canvas.borrow();
+        let mut canvas = self.canvas.borrow_mut();
 
-        if let Some(canvas) = canvas.as_ref() {
+        if let Some(canvas) = canvas.as_mut() {
             let obj = self.obj();
 
             // clip drawing to widget area
