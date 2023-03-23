@@ -79,13 +79,13 @@ impl Canvas {
 
             // round coordinates for pixel-perfect rendering
             let page_rect = page_rect.round();
-            let page_rect = Rect::<i64> {
+            let page_rect = Rect {
                 offs: na::convert_unchecked(page_rect.offs),
                 size: na::convert_unchecked(page_rect.size),
             };
 
             // clip page bounds to visible screen area (area on screen covered by page)
-            let screen_rect = Rect::<i64>::new(point![0, 0], na::convert_unchecked(vp.r.size));
+            let screen_rect = Rect::new(point![0, 0], na::convert_unchecked(vp.r.size));
             let page_clipped = page_rect.clip(&screen_rect);
 
             // check if page is in view
