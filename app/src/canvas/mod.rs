@@ -74,38 +74,38 @@ impl Canvas {
             let m_ptv = m_ctv * m_ptc;
 
             // convert page bounds to screen coordinates
-            let b_page = Rect::new(m_ptv * point![0.0, 0.0], m_ptv * page_size);
+            let page_rect = Rect::new(m_ptv * point![0.0, 0.0], m_ptv * page_size);
 
             // round coordinates for pixel-perfect rendering
-            let b_page = b_page.round();
-            let b_page = Rect::<i64> {
-                offs: nalgebra::convert_unchecked(b_page.offs),
-                size: nalgebra::convert_unchecked(b_page.size),
+            let page_rect = page_rect.round();
+            let page_rect = Rect::<i64> {
+                offs: nalgebra::convert_unchecked(page_rect.offs),
+                size: nalgebra::convert_unchecked(page_rect.size),
             };
 
             // clip page bounds to visible screen area
-            let b_screen = Rect::<i64>::new(point![0, 0], nalgebra::convert_unchecked(vp.r.size));
-            let b_page_clipped = b_page.clip(&b_screen);
+            let screen_rect = Rect::new(point![0i64, 0i64], nalgebra::convert_unchecked(vp.r.size));
+            let page_clipped = page_rect.clip(&screen_rect);
 
             // check if page is in view
-            if b_page_clipped.size.x < 1 || b_page_clipped.size.y < 1 {
+            if page_clipped.size.x < 1 || page_clipped.size.y < 1 {
                 continue;
             }
 
             // page offset in display pixels
-            let page_offs_d = b_page.offs - b_page_clipped.offs;
+            let page_offs_d = page_rect.offs - page_clipped.offs;
 
             // allocate buffer to which the PDF is being rendered
-            let stride = b_page_clipped.size.x as usize * 4;
-            let mut buffer = vec![0; stride * b_page_clipped.size.y as usize];
+            let stride = page_clipped.size.x as usize * 4;
+            let mut buffer = vec![0; stride * page_clipped.size.y as usize];
 
             // render the PDF page
             {
                 // wrap buffer in bitmap
                 let mut bmp = Bitmap::from_buf(
                     page.library().clone(),
-                    b_page_clipped.size.x as _,
-                    b_page_clipped.size.y as _,
+                    page_clipped.size.x as _,
+                    page_clipped.size.y as _,
                     BitmapFormat::Bgra,
                     &mut buffer[..],
                     stride as _,
@@ -115,7 +115,7 @@ impl Canvas {
                 // set up render layout
                 let layout = PageRenderLayout {
                     start: nalgebra::convert::<_, Vector2<i32>>(page_offs_d).into(),
-                    size: nalgebra::convert(b_page.size),
+                    size: nalgebra::convert(page_rect.size),
                     rotate: PageRotation::None,
                 };
 
@@ -127,16 +127,16 @@ impl Canvas {
             // transfer buffer ownership to GTK/GDK
             let bytes = glib::Bytes::from_owned(buffer);
             let texture = gdk::MemoryTexture::new(
-                b_page_clipped.size.x as _,
-                b_page_clipped.size.y as _,
+                page_clipped.size.x as _,
+                page_clipped.size.y as _,
                 gdk::MemoryFormat::B8g8r8a8,
                 &bytes,
                 stride as _,
             );
 
             // draw background and page contents
-            snapshot.append_color(&gdk::RGBA::new(1.0, 1.0, 1.0, 1.0), &b_page_clipped.into());
-            snapshot.append_texture(&texture, &b_page_clipped.into());
+            snapshot.append_color(&gdk::RGBA::new(1.0, 1.0, 1.0, 1.0), &page_clipped.into());
+            snapshot.append_texture(&texture, &page_clipped.into());
         }
     }
 }
