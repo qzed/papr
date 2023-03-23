@@ -2,7 +2,8 @@ use gtk::traits::SnapshotExt;
 use gtk::Snapshot;
 use gtk::{gdk, glib};
 
-use nalgebra::{point, Similarity2, Translation2, Vector2};
+use na::{point, vector, Point2, Similarity2, Translation2, Vector2};
+use nalgebra as na;
 
 use pdfium::bitmap::{Bitmap, BitmapFormat};
 use pdfium::doc::{Page, PageRenderLayout, PageRotation, RenderFlags};
@@ -65,7 +66,7 @@ impl Canvas {
 
         // page rendering
         for (page, offs) in self.pages.iter().zip(&self.layout.offsets) {
-            let page_size: Vector2<f64> = nalgebra::convert(page.size());
+            let page_size: Vector2<f64> = na::convert(page.size());
 
             // transformation matrix: page to canvas
             let m_ptc = Translation2::from(*offs);
@@ -79,12 +80,12 @@ impl Canvas {
             // round coordinates for pixel-perfect rendering
             let page_rect = page_rect.round();
             let page_rect = Rect::<i64> {
-                offs: nalgebra::convert_unchecked(page_rect.offs),
-                size: nalgebra::convert_unchecked(page_rect.size),
+                offs: na::convert_unchecked(page_rect.offs),
+                size: na::convert_unchecked(page_rect.size),
             };
 
-            // clip page bounds to visible screen area
-            let screen_rect = Rect::new(point![0i64, 0i64], nalgebra::convert_unchecked(vp.r.size));
+            // clip page bounds to visible screen area (area on screen covered by page)
+            let screen_rect = Rect::<i64>::new(point![0, 0], na::convert_unchecked(vp.r.size));
             let page_clipped = page_rect.clip(&screen_rect);
 
             // check if page is in view
@@ -114,8 +115,8 @@ impl Canvas {
 
                 // set up render layout
                 let layout = PageRenderLayout {
-                    start: nalgebra::convert::<_, Vector2<i32>>(page_offs_d).into(),
-                    size: nalgebra::convert(page_rect.size),
+                    start: na::convert::<_, Vector2<i32>>(page_offs_d).into(),
+                    size: na::convert(page_rect.size),
                     rotate: PageRotation::None,
                 };
 
