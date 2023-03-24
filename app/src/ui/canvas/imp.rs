@@ -3,7 +3,7 @@ use std::cell::{Cell, RefCell};
 use gtk::{
     glib::{self, once_cell::sync::Lazy, ParamSpec, Value},
     graphene,
-    prelude::{ObjectExt, ParamSpecBuilderExt, ToValue},
+    prelude::{Cast, ObjectExt, ParamSpecBuilderExt, ToValue},
     subclass::{
         prelude::{ObjectImpl, ObjectSubclass, ObjectSubclassExt, ObjectSubclassIsExt},
         scrollable::ScrollableImpl,
@@ -95,7 +95,11 @@ impl CanvasWidget {
             .unwrap_or((1.0, 1.0))
     }
 
-    pub fn set_canvas(&self, canvas: Option<Canvas>) {
+    pub fn set_canvas(&self, mut canvas: Option<Canvas>) {
+        if let Some(c) = canvas.as_mut() {
+            c.set_widget(Some(self.obj().clone().upcast()));
+        }
+
         *self.canvas.borrow_mut() = canvas
     }
 }

@@ -1,6 +1,11 @@
-use gtk::traits::SnapshotExt;
-use gtk::Snapshot;
+use std::cell::RefCell;
+use std::collections::HashSet;
+use std::rc::Rc;
+use std::sync::mpsc;
+
+use gtk::traits::{SnapshotExt, WidgetExt};
 use gtk::{gdk, glib};
+use gtk::{Snapshot, Widget};
 
 use na::{point, vector, Similarity2, Translation2, Vector2};
 use nalgebra as na;
@@ -18,10 +23,11 @@ mod pool;
 use pool::BufferPool;
 
 pub struct Canvas {
+    widget: Rc<RefCell<Option<Widget>>>,
     pages: Vec<PageData>,
     layout: Layout,
     tile_size: Vector2<i64>,
-    renderer: TileRenderer,
+    queue: RenderQueue,
 }
 
 impl Canvas {
@@ -33,15 +39,36 @@ impl Canvas {
         let layout_provider = VerticalLayout;
         let layout = layout_provider.compute(pages.iter().map(|d| &d.page), 10.0);
 
+        let widget: Rc<RefCell<Option<Widget>>> = Rc::new(RefCell::new(None));
+
+        let (notif_sender, notif_receiver) = glib::MainContext::channel(glib::PRIORITY_DEFAULT);
+
+        let w = widget.clone();
+        notif_receiver.attach(None, move |_| {
+            if let Some(w) = w.borrow().as_ref() {
+                w.queue_draw();
+            }
+
+            glib::Continue(true)
+        });
+
         let tile_size = vector![512, 512];
-        let renderer = TileRenderer::new(tile_size);
+        let (queue, mut thread) = RenderQueue::new(tile_size, notif_sender);
+
+        // run the render thread
+        std::thread::spawn(move || thread.run());
 
         Self {
+            widget,
             pages,
             layout,
             tile_size,
-            renderer,
+            queue,
         }
+    }
+
+    pub fn set_widget(&mut self, widget: Option<Widget>) {
+        *self.widget.borrow_mut() = widget;
     }
 
     pub fn bounds(&self) -> &Bounds<f64> {
@@ -67,6 +94,11 @@ impl Canvas {
         //   The relation between page coordinates and canvas coordinates is
         //   defined by the page offset in the canvas.
 
+        // get fresh tiles
+        while let Some(tile) = self.queue.next() {
+            self.pages[tile.id.page].tiles.push(tile);
+        }
+
         // transformation matrix: canvas to viewport
         let m_ctv = {
             let m_scale = Similarity2::from_scaling(vp.scale);
@@ -77,7 +109,7 @@ impl Canvas {
         // page rendering
         let iter = self.pages.iter_mut().zip(&self.layout.rects);
 
-        for (page, page_rect) in iter {
+        for (i, (page, page_rect)) in iter.enumerate() {
             // transformation matrix: page to canvas
             let m_ptc = Translation2::from(page_rect.offs);
 
@@ -133,29 +165,21 @@ impl Canvas {
             snapshot.push_clip(&screen_rect.into());
 
             for (ix, iy) in tiles.range_iter() {
-                let tile_id = TileId::new(ix, iy, page_rect.size.x);
+                let tile_id = TileId::new(i, ix, iy, page_rect.size.x);
 
-                // get cached texture or render tile
-                let texture = if let Some(entry) = page.tiles.find(&tile_id) {
+                // render cached texture or submit render task
+                if let Some(entry) = page.tiles.find(&tile_id) {
                     // mark tile as visible
                     entry.visible = true;
 
-                    // return cached texture
-                    &entry.tile.texture
+                    // draw tile to screen
+                    let tile_offs = vector![ix, iy].component_mul(&self.tile_size);
+                    let tile_screen_rect = Rect::new(page_rect.offs + tile_offs, self.tile_size);
+                    snapshot.append_texture(&entry.tile.texture, &tile_screen_rect.into());
                 } else {
-                    let tile = self
-                        .renderer
-                        .render_tile(&page.page, &page_rect, &tile_id)
-                        .unwrap();
-
-                    let entry = page.tiles.push(tile);
-                    &entry.tile.texture
+                    // submit render task
+                    self.queue.submit(page.page.clone(), page_rect, tile_id);
                 };
-
-                // draw tile to screen
-                let tile_offs = vector![ix, iy].component_mul(&self.tile_size);
-                let tile_screen_rect = Rect::new(page_rect.offs + tile_offs, self.tile_size);
-                snapshot.append_texture(texture, &tile_screen_rect.into());
             }
 
             snapshot.pop();
@@ -181,14 +205,15 @@ impl PageData {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TileId {
+    pub page: usize,
     pub x: i64,
     pub y: i64,
     pub z: i64,
 }
 
 impl TileId {
-    pub fn new(x: i64, y: i64, z: i64) -> Self {
-        Self { x, y, z }
+    pub fn new(page: usize, x: i64, y: i64, z: i64) -> Self {
+        Self { page, x, y, z }
     }
 }
 
@@ -218,14 +243,13 @@ impl TileCache {
         self.storage.iter_mut().find(|entry| &entry.tile.id == id)
     }
 
-    pub fn push(&mut self, tile: Tile) -> &mut TileCacheEntry {
+    pub fn push(&mut self, tile: Tile) {
         let entry = TileCacheEntry {
             visible: true,
             tile,
         };
 
         self.storage.push(entry);
-        self.storage.last_mut().unwrap()
     }
 }
 
@@ -285,5 +309,103 @@ impl TileRenderer {
         // create tile
         let tile = Tile { id: *id, texture };
         Ok(tile)
+    }
+}
+
+// TODO:
+// - we should remove the task from the queue once it starts being rendered
+// - add support for canceling tasks and cancel task when out of view
+
+pub struct RenderQueue {
+    sender: mpsc::Sender<RenderTask>,
+    receiver: mpsc::Receiver<Tile>,
+    pending: HashSet<TileId>,
+}
+
+pub struct RenderThread {
+    renderer: TileRenderer,
+    receiver: mpsc::Receiver<RenderTask>,
+    sender: mpsc::Sender<Tile>,
+    notif: glib::Sender<()>,
+}
+
+struct RenderTask {
+    page: Page,
+    page_rect: Rect<i64>,
+    tile_id: TileId,
+}
+
+impl RenderQueue {
+    pub fn new(tile_size: Vector2<i64>, notif: glib::Sender<()>) -> (RenderQueue, RenderThread) {
+        let (task_sender, task_receiver) = mpsc::channel();
+        let (tile_sender, tile_receiver) = mpsc::channel();
+        let renderer = TileRenderer::new(tile_size);
+
+        let queue = RenderQueue {
+            sender: task_sender,
+            receiver: tile_receiver,
+            pending: HashSet::new(),
+        };
+
+        let thread = RenderThread {
+            renderer,
+            receiver: task_receiver,
+            sender: tile_sender,
+            notif,
+        };
+
+        (queue, thread)
+    }
+
+    pub fn is_pending(&self, tile_id: &TileId) -> bool {
+        self.pending.contains(&tile_id)
+    }
+
+    pub fn submit(&mut self, page: Page, page_rect: Rect<i64>, tile_id: TileId) {
+        if self.is_pending(&tile_id) {
+            return;
+        }
+
+        let task = RenderTask {
+            page,
+            page_rect,
+            tile_id,
+        };
+
+        self.pending.insert(tile_id);
+        self.sender.send(task).unwrap();
+    }
+
+    pub fn next(&mut self) -> Option<Tile> {
+        match self.receiver.try_recv() {
+            Ok(tile) => {
+                self.pending.remove(&tile.id);
+                Some(tile)
+            }
+            Err(mpsc::TryRecvError::Empty) => None,
+            Err(mpsc::TryRecvError::Disconnected) => panic!(),
+        }
+    }
+}
+
+impl RenderThread {
+    pub fn run(&mut self) {
+        while let Ok(task) = self.receiver.recv() {
+            log::trace!(
+                "rendering tile: ({}, {}, {}, {})",
+                task.tile_id.page,
+                task.tile_id.x,
+                task.tile_id.y,
+                task.tile_id.z
+            );
+
+            let tile = self
+                .renderer
+                .render_tile(&task.page, &task.page_rect, &task.tile_id)
+                .unwrap();
+
+            self.sender.send(tile).unwrap();
+            self.notif.send(()).unwrap();
+        }
     }
 }
