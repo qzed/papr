@@ -147,12 +147,11 @@ impl Canvas {
 
             for ix in tiles.range_x() {
                 for iy in tiles.range_y() {
+                    let tile_id = TileId::new(ix, iy, page_rect.size.x);
                     let tile_offs = vector![ix, iy].component_mul(&self.tile_size);
 
                     // look for current tile
-                    let tile = page_data.tiles.iter_mut().find(|tile| {
-                        tile.id.index.x == ix && tile.id.index.y == iy && tile.id.scale == vp.scale
-                    });
+                    let tile = page_data.tiles.iter_mut().find(|tile| tile.id == tile_id);
 
                     // get cached texture or render tile
                     let texture = if let Some(tile) = tile {
@@ -203,10 +202,7 @@ impl Canvas {
 
                         // insert new tile
                         let tile = Tile {
-                            id: TileId {
-                                index: vector![ix, iy],
-                                scale: vp.scale,
-                            },
+                            id: tile_id,
                             visible: true,
                             texture: texture.clone(),
                         };
@@ -243,14 +239,21 @@ impl PageData {
 }
 
 #[derive(Debug)]
-pub struct TileId {
-    pub index: Vector2<i64>,
-    pub scale: f64,
-}
-
-#[derive(Debug)]
 pub struct Tile {
     id: TileId,
     visible: bool,
     texture: gdk::MemoryTexture,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct TileId {
+    pub x: i64,
+    pub y: i64,
+    pub z: i64,
+}
+
+impl TileId {
+    pub fn new(x: i64, y: i64, z: i64) -> Self {
+        Self { x, y, z }
+    }
 }
