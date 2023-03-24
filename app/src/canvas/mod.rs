@@ -202,10 +202,7 @@ impl Canvas {
                 };
 
                 // draw tile to screen
-                let tile_screen_rect = Rect {
-                    offs: page_rect.offs + tile_offs,
-                    size: self.tile_size,
-                };
+                let tile_screen_rect = Rect::new(page_rect.offs + tile_offs, self.tile_size);
                 snapshot.append_texture(&texture, &tile_screen_rect.into());
             }
 
