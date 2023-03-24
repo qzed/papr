@@ -1,6 +1,7 @@
 use std::ops::{Add, Range, Sub};
 
 use gtk::graphene;
+use itertools::{Itertools, Product};
 use nalgebra::{point, vector};
 use nalgebra::{Point2, Scalar, Vector2};
 use num_traits::{Float, Zero};
@@ -50,6 +51,14 @@ impl<T> Bounds<T> {
         T: Copy,
     {
         (self.y_min)..(self.y_max)
+    }
+
+    pub fn range_iter(&self) -> Product<Range<T>, Range<T>>
+    where
+        T: Copy,
+        Range<T>: Iterator<Item = T>,
+    {
+        self.range_x().cartesian_product(self.range_y())
     }
 }
 

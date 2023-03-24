@@ -135,83 +135,81 @@ impl Canvas {
 
             snapshot.push_clip(&screen_rect.into());
 
-            for ix in tiles.range_x() {
-                for iy in tiles.range_y() {
-                    let tile_id = TileId::new(ix, iy, page_rect.size.x);
-                    let tile_offs = vector![ix, iy].component_mul(&self.tile_size);
+            for (ix, iy) in tiles.range_iter() {
+                let tile_id = TileId::new(ix, iy, page_rect.size.x);
+                let tile_offs = vector![ix, iy].component_mul(&self.tile_size);
 
-                    // look for current tile
-                    let tile = page
-                        .tiles
-                        .storage
-                        .iter_mut()
-                        .find(|tile| tile.id == tile_id);
+                // look for current tile
+                let tile = page
+                    .tiles
+                    .storage
+                    .iter_mut()
+                    .find(|tile| tile.id == tile_id);
 
-                    // get cached texture or render tile
-                    let texture = if let Some(tile) = tile {
-                        // mark tile as visible
-                        tile.visible = true;
+                // get cached texture or render tile
+                let texture = if let Some(tile) = tile {
+                    // mark tile as visible
+                    tile.visible = true;
 
-                        // return cached texture
-                        tile.texture.clone()
-                    } else {
-                        // allocate tile bitmap buffer
-                        let stride = self.tile_size.x as usize * 4;
-                        let mut buffer = self.pool.alloc();
+                    // return cached texture
+                    tile.texture.clone()
+                } else {
+                    // allocate tile bitmap buffer
+                    let stride = self.tile_size.x as usize * 4;
+                    let mut buffer = self.pool.alloc();
 
-                        // render to tile
-                        {
-                            // wrap buffer in bitmap
-                            let mut bmp = Bitmap::from_buf(
-                                page.page.library().clone(),
-                                self.tile_size.x as _,
-                                self.tile_size.y as _,
-                                BitmapFormat::Bgra,
-                                &mut buffer[..],
-                                stride as _,
-                            )
-                            .unwrap();
-
-                            // set up render layout
-                            let layout = PageRenderLayout {
-                                start: na::convert::<_, Vector2<i32>>(-tile_offs).into(),
-                                size: na::convert(page_rect.size),
-                                rotate: PageRotation::None,
-                            };
-
-                            // render page to bitmap
-                            let flags = RenderFlags::LcdText | RenderFlags::Annotations;
-                            page.page.render(&mut bmp, &layout, flags).unwrap();
-                        }
-
-                        // create GTK/GDK texture
-                        let bytes = glib::Bytes::from_owned(buffer);
-                        let texture = gdk::MemoryTexture::new(
+                    // render to tile
+                    {
+                        // wrap buffer in bitmap
+                        let mut bmp = Bitmap::from_buf(
+                            page.page.library().clone(),
                             self.tile_size.x as _,
                             self.tile_size.y as _,
-                            gdk::MemoryFormat::B8g8r8a8,
-                            &bytes,
+                            BitmapFormat::Bgra,
+                            &mut buffer[..],
                             stride as _,
-                        );
+                        )
+                        .unwrap();
 
-                        // insert new tile
-                        let tile = Tile {
-                            id: tile_id,
-                            visible: true,
-                            texture: texture.clone(),
+                        // set up render layout
+                        let layout = PageRenderLayout {
+                            start: na::convert::<_, Vector2<i32>>(-tile_offs).into(),
+                            size: na::convert(page_rect.size),
+                            rotate: PageRotation::None,
                         };
-                        page.tiles.storage.push(tile);
 
-                        texture
-                    };
+                        // render page to bitmap
+                        let flags = RenderFlags::LcdText | RenderFlags::Annotations;
+                        page.page.render(&mut bmp, &layout, flags).unwrap();
+                    }
 
-                    // draw tile to screen
-                    let tile_screen_rect = Rect {
-                        offs: page_rect.offs + tile_offs,
-                        size: self.tile_size,
+                    // create GTK/GDK texture
+                    let bytes = glib::Bytes::from_owned(buffer);
+                    let texture = gdk::MemoryTexture::new(
+                        self.tile_size.x as _,
+                        self.tile_size.y as _,
+                        gdk::MemoryFormat::B8g8r8a8,
+                        &bytes,
+                        stride as _,
+                    );
+
+                    // insert new tile
+                    let tile = Tile {
+                        id: tile_id,
+                        visible: true,
+                        texture: texture.clone(),
                     };
-                    snapshot.append_texture(&texture, &tile_screen_rect.into());
-                }
+                    page.tiles.storage.push(tile);
+
+                    texture
+                };
+
+                // draw tile to screen
+                let tile_screen_rect = Rect {
+                    offs: page_rect.offs + tile_offs,
+                    size: self.tile_size,
+                };
+                snapshot.append_texture(&texture, &tile_screen_rect.into());
             }
 
             snapshot.pop();
