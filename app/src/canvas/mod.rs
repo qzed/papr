@@ -21,7 +21,7 @@ pub struct Canvas {
     pages: Vec<PageData>,
     layout: Layout,
     tile_size: Vector2<i64>,
-    pool: BufferPool,
+    renderer: TileRenderer,
 }
 
 impl Canvas {
@@ -34,13 +34,13 @@ impl Canvas {
         let layout = layout_provider.compute(pages.iter().map(|d| &d.page), 10.0);
 
         let tile_size = vector![512, 512];
-        let pool = BufferPool::new(Some(64), (tile_size.x * tile_size.y * 4) as _);
+        let renderer = TileRenderer::new(tile_size);
 
         Self {
             pages,
             layout,
             tile_size,
-            pool,
+            renderer,
         }
     }
 
@@ -134,7 +134,6 @@ impl Canvas {
 
             for (ix, iy) in tiles.range_iter() {
                 let tile_id = TileId::new(ix, iy, page_rect.size.x);
-                let tile_offs = vector![ix, iy].component_mul(&self.tile_size);
 
                 // get cached texture or render tile
                 let texture = if let Some(entry) = page.tiles.find(&tile_id) {
@@ -144,56 +143,17 @@ impl Canvas {
                     // return cached texture
                     &entry.tile.texture
                 } else {
-                    // allocate tile bitmap buffer
-                    let stride = self.tile_size.x as usize * 4;
-                    let mut buffer = self.pool.alloc();
-
-                    // render to tile
-                    {
-                        // wrap buffer in bitmap
-                        let mut bmp = Bitmap::from_buf(
-                            page.page.library().clone(),
-                            self.tile_size.x as _,
-                            self.tile_size.y as _,
-                            BitmapFormat::Bgra,
-                            &mut buffer[..],
-                            stride as _,
-                        )
+                    let tile = self
+                        .renderer
+                        .render_tile(&page.page, &page_rect, &tile_id)
                         .unwrap();
-
-                        // set up render layout
-                        let layout = PageRenderLayout {
-                            start: na::convert::<_, Vector2<i32>>(-tile_offs).into(),
-                            size: na::convert(page_rect.size),
-                            rotate: PageRotation::None,
-                        };
-
-                        // render page to bitmap
-                        let flags = RenderFlags::LcdText | RenderFlags::Annotations;
-                        page.page.render(&mut bmp, &layout, flags).unwrap();
-                    }
-
-                    // create GTK/GDK texture
-                    let bytes = glib::Bytes::from_owned(buffer);
-                    let texture = gdk::MemoryTexture::new(
-                        self.tile_size.x as _,
-                        self.tile_size.y as _,
-                        gdk::MemoryFormat::B8g8r8a8,
-                        &bytes,
-                        stride as _,
-                    );
-
-                    // insert new tile
-                    let tile = Tile {
-                        id: tile_id,
-                        texture,
-                    };
 
                     let entry = page.tiles.push(tile);
                     &entry.tile.texture
                 };
 
                 // draw tile to screen
+                let tile_offs = vector![ix, iy].component_mul(&self.tile_size);
                 let tile_screen_rect = Rect::new(page_rect.offs + tile_offs, self.tile_size);
                 snapshot.append_texture(texture, &tile_screen_rect.into());
             }
@@ -217,6 +177,25 @@ impl PageData {
 
         Self { page, tiles }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct TileId {
+    pub x: i64,
+    pub y: i64,
+    pub z: i64,
+}
+
+impl TileId {
+    pub fn new(x: i64, y: i64, z: i64) -> Self {
+        Self { x, y, z }
+    }
+}
+
+#[derive(Debug)]
+pub struct Tile {
+    id: TileId,
+    texture: gdk::MemoryTexture,
 }
 
 pub struct TileCache {
@@ -250,21 +229,61 @@ impl TileCache {
     }
 }
 
-#[derive(Debug)]
-pub struct Tile {
-    id: TileId,
-    texture: gdk::MemoryTexture,
+struct TileRenderer {
+    tile_size: Vector2<i64>,
+    pool: BufferPool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct TileId {
-    pub x: i64,
-    pub y: i64,
-    pub z: i64,
-}
+impl TileRenderer {
+    fn new(tile_size: Vector2<i64>) -> Self {
+        let pool = BufferPool::new(Some(64), (tile_size.x * tile_size.y * 4) as _);
 
-impl TileId {
-    pub fn new(x: i64, y: i64, z: i64) -> Self {
-        Self { x, y, z }
+        Self { tile_size, pool }
+    }
+
+    fn render_tile(&self, page: &Page, page_rect: &Rect<i64>, id: &TileId) -> pdfium::Result<Tile> {
+        // allocate tile bitmap buffer
+        let stride = self.tile_size.x as usize * 4;
+        let mut buffer = self.pool.alloc();
+
+        // render to tile
+        {
+            let tile_offs = vector![id.x, id.y].component_mul(&self.tile_size);
+
+            // wrap buffer in bitmap
+            let mut bmp = Bitmap::from_buf(
+                page.library().clone(),
+                self.tile_size.x as _,
+                self.tile_size.y as _,
+                BitmapFormat::Bgra,
+                &mut buffer[..],
+                stride as _,
+            )?;
+
+            // set up render layout
+            let layout = PageRenderLayout {
+                start: na::convert::<_, Vector2<i32>>(-tile_offs).into(),
+                size: na::convert(page_rect.size),
+                rotate: PageRotation::None,
+            };
+
+            // render page to bitmap
+            let flags = RenderFlags::LcdText | RenderFlags::Annotations;
+            page.render(&mut bmp, &layout, flags)?;
+        }
+
+        // create GTK/GDK texture
+        let bytes = glib::Bytes::from_owned(buffer);
+        let texture = gdk::MemoryTexture::new(
+            self.tile_size.x as _,
+            self.tile_size.y as _,
+            gdk::MemoryFormat::B8g8r8a8,
+            &bytes,
+            stride as _,
+        );
+
+        // create tile
+        let tile = Tile { id: *id, texture };
+        Ok(tile)
     }
 }
