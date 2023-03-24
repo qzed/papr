@@ -136,20 +136,13 @@ impl Canvas {
                 let tile_id = TileId::new(ix, iy, page_rect.size.x);
                 let tile_offs = vector![ix, iy].component_mul(&self.tile_size);
 
-                // look for current tile
-                let tile = page
-                    .tiles
-                    .storage
-                    .iter_mut()
-                    .find(|tile| tile.id == tile_id);
-
                 // get cached texture or render tile
-                let texture = if let Some(tile) = tile {
+                let texture = if let Some(entry) = page.tiles.find(&tile_id) {
                     // mark tile as visible
-                    tile.visible = true;
+                    entry.visible = true;
 
                     // return cached texture
-                    tile.texture.clone()
+                    &entry.tile.texture
                 } else {
                     // allocate tile bitmap buffer
                     let stride = self.tile_size.x as usize * 4;
@@ -193,17 +186,16 @@ impl Canvas {
                     // insert new tile
                     let tile = Tile {
                         id: tile_id,
-                        visible: true,
-                        texture: texture.clone(),
+                        texture,
                     };
-                    page.tiles.storage.push(tile);
 
-                    texture
+                    let entry = page.tiles.push(tile);
+                    &entry.tile.texture
                 };
 
                 // draw tile to screen
                 let tile_screen_rect = Rect::new(page_rect.offs + tile_offs, self.tile_size);
-                snapshot.append_texture(&texture, &tile_screen_rect.into());
+                snapshot.append_texture(texture, &tile_screen_rect.into());
             }
 
             snapshot.pop();
@@ -228,7 +220,12 @@ impl PageData {
 }
 
 pub struct TileCache {
-    storage: Vec<Tile>,
+    storage: Vec<TileCacheEntry>,
+}
+
+pub struct TileCacheEntry {
+    pub visible: bool,
+    pub tile: Tile,
 }
 
 impl TileCache {
@@ -237,12 +234,25 @@ impl TileCache {
             storage: Vec::new(),
         }
     }
+
+    pub fn find(&mut self, id: &TileId) -> Option<&mut TileCacheEntry> {
+        self.storage.iter_mut().find(|entry| &entry.tile.id == id)
+    }
+
+    pub fn push(&mut self, tile: Tile) -> &mut TileCacheEntry {
+        let entry = TileCacheEntry {
+            visible: true,
+            tile,
+        };
+
+        self.storage.push(entry);
+        self.storage.last_mut().unwrap()
+    }
 }
 
 #[derive(Debug)]
 pub struct Tile {
     id: TileId,
-    visible: bool,
     texture: gdk::MemoryTexture,
 }
 
