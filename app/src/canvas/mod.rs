@@ -67,9 +67,6 @@ impl Canvas {
         //   The relation between page coordinates and canvas coordinates is
         //   defined by the page offset in the canvas.
 
-        // TODO:
-        //   - page shadow
-
         // transformation matrix: canvas to viewport
         let m_ctv = {
             let m_scale = Similarity2::from_scaling(vp.scale);
