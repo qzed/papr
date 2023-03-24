@@ -1,76 +1,80 @@
-use nalgebra::{vector, Vector2};
+use na::point;
+use nalgebra as na;
+
 use pdfium::doc::Page;
 
-use crate::types::Bounds;
+use crate::types::{Bounds, Rect};
 
 pub struct Layout {
     pub bounds: Bounds<f64>,
-    pub offsets: Vec<Vector2<f64>>,
+    pub rects: Vec<Rect<f64>>,
 }
 
 pub trait LayoutProvider {
-    fn compute(&self, pages: &[Page], space: f64) -> Layout;
+    fn compute<'a>(&self, pages: impl Iterator<Item = &'a Page>, space: f64) -> Layout;
 }
 
 pub struct VerticalLayout;
 pub struct HorizontalLayout;
 
 impl LayoutProvider for VerticalLayout {
-    fn compute(&self, pages: &[Page], space: f64) -> Layout {
-        let mut bounds = Bounds::<f64>::zero();
-        let mut offsets = Vec::with_capacity(pages.len());
+    fn compute<'a>(&self, pages: impl Iterator<Item = &'a Page>, space: f64) -> Layout {
+        let mut rects: Vec<Rect<f64>> = pages
+            .into_iter()
+            .map(|p| Rect::new(point![0.0, 0.0], na::convert(p.size())))
+            .collect();
 
-        for page in pages {
-            bounds.x_max = bounds.x_max.max(page.width() as _);
+        let mut bounds = Bounds::zero();
+        bounds.x_max = rects
+            .iter()
+            .fold(0.0, |x: f64, r: &Rect<f64>| x.max(r.size.x));
+
+        if let Some(r) = rects.first_mut() {
+            let x = (bounds.x_max - r.size.x) / 2.0;
+
+            r.offs = point![x, bounds.y_max];
+            bounds.y_max += r.size.y;
         }
 
-        if let Some(page) = pages.first() {
-            let x = (bounds.x_max - page.width() as f64) / 2.0;
+        for r in rects.iter_mut().skip(1) {
+            let x = (bounds.x_max - r.size.x) / 2.0;
 
-            offsets.push(vector![x, 0.0]);
-
-            bounds.y_max = page.height() as f64;
-        }
-
-        for page in pages.iter().skip(1) {
-            let x = (bounds.x_max - page.width() as f64) / 2.0;
             bounds.y_max += space;
-
-            offsets.push(vector![x, bounds.y_max]);
-
-            bounds.y_max += page.height() as f64;
+            r.offs = point![x, bounds.y_max];
+            bounds.y_max += r.size.y;
         }
 
-        Layout { bounds, offsets }
+        Layout { bounds, rects }
     }
 }
 
 impl LayoutProvider for HorizontalLayout {
-    fn compute(&self, pages: &[Page], space: f64) -> Layout {
-        let mut bounds = Bounds::<f64>::zero();
-        let mut offsets = Vec::with_capacity(pages.len());
+    fn compute<'a>(&self, pages: impl Iterator<Item = &'a Page>, space: f64) -> Layout {
+        let mut rects: Vec<Rect<f64>> = pages
+            .into_iter()
+            .map(|p| Rect::new(point![0.0, 0.0], na::convert(p.size())))
+            .collect();
 
-        for page in pages {
-            bounds.y_max = bounds.y_max.max(page.height() as _);
+        let mut bounds = Bounds::zero();
+        bounds.y_max = rects
+            .iter()
+            .fold(0.0, |y: f64, r: &Rect<f64>| y.max(r.size.y));
+
+        if let Some(r) = rects.first_mut() {
+            let y = (bounds.y_max - r.size.y) / 2.0;
+
+            r.offs = point![bounds.x_max, y];
+            bounds.x_max += r.size.x;
         }
 
-        if let Some(page) = pages.first() {
-            let y = (bounds.y_max - page.height() as f64) / 2.0;
+        for r in rects.iter_mut().skip(1) {
+            let y = (bounds.y_max - r.size.y) / 2.0;
 
-            offsets.push(vector![0.0, y]);
-
-            bounds.x_max = page.width() as f64;
-        }
-
-        for page in pages.iter().skip(1) {
-            let y = (bounds.y_max - page.height() as f64) / 2.0;
             bounds.x_max += space;
-
-            offsets.push(vector![bounds.x_max, y]);
-
-            bounds.x_max += page.width() as f64;
+            r.offs = point![bounds.x_max, y];
+            bounds.x_max += r.size.x;
         }
 
-        Layout { bounds, offsets }
+        Layout { bounds, rects }
     }
 }

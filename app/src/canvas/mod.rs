@@ -18,8 +18,7 @@ mod pool;
 use pool::BufferPool;
 
 pub struct Canvas {
-    pages: Vec<Page>,
-    page_data: Vec<PageData>,
+    pages: Vec<PageData>,
     layout: Layout,
     tile_size: Vector2<i64>,
     pool: BufferPool,
@@ -28,20 +27,17 @@ pub struct Canvas {
 impl Canvas {
     pub fn create(doc: Document) -> Self {
         let pages: Vec<_> = (0..(doc.pdf.pages().count()))
-            .map(|i| doc.pdf.pages().get(i).unwrap())
+            .map(|i| PageData::new(doc.pdf.pages().get(i).unwrap()))
             .collect();
 
         let layout_provider = VerticalLayout;
-        let layout = layout_provider.compute(&pages, 10.0);
+        let layout = layout_provider.compute(pages.iter().map(|d| &d.page), 10.0);
 
         let tile_size = vector![512, 512];
         let pool = BufferPool::new(Some(64), (tile_size.x * tile_size.y * 4) as _);
 
-        let page_data = (0..pages.len()).map(|_| PageData::new()).collect();
-
         Self {
             pages,
-            page_data,
             layout,
             tile_size,
             pool,
@@ -82,23 +78,17 @@ impl Canvas {
         };
 
         // page rendering
-        let iter = self
-            .pages
-            .iter()
-            .zip(&self.layout.offsets)
-            .zip(&mut self.page_data);
+        let iter = self.pages.iter_mut().zip(&self.layout.rects);
 
-        for ((page, offs), page_data) in iter {
-            let page_size: Vector2<f64> = na::convert(page.size());
-
+        for (page, page_rect) in iter {
             // transformation matrix: page to canvas
-            let m_ptc = Translation2::from(*offs);
+            let m_ptc = Translation2::from(page_rect.offs);
 
             // transformation matrix: page to viewport/screen
             let m_ptv = m_ctv * m_ptc;
 
             // convert page bounds to screen coordinates
-            let page_rect = Rect::new(m_ptv * point![0.0, 0.0], m_ptv * page_size);
+            let page_rect = Rect::new(m_ptv * point![0.0, 0.0], m_ptv * page_rect.size);
 
             // round coordinates for pixel-perfect rendering
             let page_rect = page_rect.round();
@@ -114,7 +104,7 @@ impl Canvas {
             // check if page is in view
             if page_clipped.size.x < 1 || page_clipped.size.y < 1 {
                 // evict cached tiles for invisible pages
-                page_data.tiles.clear();
+                page.tiles.storage.clear();
 
                 // skip rendering
                 continue;
@@ -139,7 +129,7 @@ impl Canvas {
             };
 
             // mark all tiles as invisible
-            for tile in &mut page_data.tiles {
+            for tile in &mut page.tiles.storage {
                 tile.visible = false;
             }
 
@@ -151,7 +141,11 @@ impl Canvas {
                     let tile_offs = vector![ix, iy].component_mul(&self.tile_size);
 
                     // look for current tile
-                    let tile = page_data.tiles.iter_mut().find(|tile| tile.id == tile_id);
+                    let tile = page
+                        .tiles
+                        .storage
+                        .iter_mut()
+                        .find(|tile| tile.id == tile_id);
 
                     // get cached texture or render tile
                     let texture = if let Some(tile) = tile {
@@ -169,7 +163,7 @@ impl Canvas {
                         {
                             // wrap buffer in bitmap
                             let mut bmp = Bitmap::from_buf(
-                                page.library().clone(),
+                                page.page.library().clone(),
                                 self.tile_size.x as _,
                                 self.tile_size.y as _,
                                 BitmapFormat::Bgra,
@@ -187,7 +181,7 @@ impl Canvas {
 
                             // render page to bitmap
                             let flags = RenderFlags::LcdText | RenderFlags::Annotations;
-                            page.render(&mut bmp, &layout, flags).unwrap();
+                            page.page.render(&mut bmp, &layout, flags).unwrap();
                         }
 
                         // create GTK/GDK texture
@@ -206,7 +200,7 @@ impl Canvas {
                             visible: true,
                             texture: texture.clone(),
                         };
-                        page_data.tiles.push(tile);
+                        page.tiles.storage.push(tile);
 
                         texture
                     };
@@ -223,18 +217,33 @@ impl Canvas {
             snapshot.pop();
 
             // free all invisible tiles
-            page_data.tiles.retain(|t| t.visible);
+            page.tiles.storage.retain(|t| t.visible);
         }
     }
 }
 
 struct PageData {
-    tiles: Vec<Tile>,
+    page: Page,
+    tiles: TileCache,
 }
 
 impl PageData {
-    fn new() -> PageData {
-        Self { tiles: Vec::new() }
+    fn new(page: Page) -> PageData {
+        let tiles = TileCache::new();
+
+        Self { page, tiles }
+    }
+}
+
+pub struct TileCache {
+    storage: Vec<Tile>,
+}
+
+impl TileCache {
+    pub fn new() -> Self {
+        Self {
+            storage: Vec::new(),
+        }
     }
 }
 
