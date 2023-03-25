@@ -62,7 +62,7 @@ impl BufferPool {
     fn reclaim(&self, data: Box<[u8]>) {
         let mut pool = self.inner.lock().unwrap();
 
-        if pool.max_size.is_none() || pool.count < pool.max_size.unwrap() {
+        if pool.max_size.is_none() || pool.storage.len() < pool.max_size.unwrap() {
             log::trace!(
                 "reclaiming buffer {:?} ({} total, {} cached)",
                 data.as_ptr(),
