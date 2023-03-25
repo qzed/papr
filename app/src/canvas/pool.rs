@@ -7,16 +7,16 @@ pub struct BufferPool {
 }
 
 struct BufferPoolInner {
-    max_size: Option<usize>,
+    max_cached: Option<usize>,
     buf_size: usize,
     storage: Vec<Box<[u8]>>,
     count: usize,
 }
 
 impl BufferPool {
-    pub fn new(max_size: Option<usize>, buf_size: usize) -> Self {
+    pub fn new(max_cached: Option<usize>, buf_size: usize) -> Self {
         let inner = BufferPoolInner {
-            max_size,
+            max_cached,
             buf_size,
             storage: Vec::new(),
             count: 0,
@@ -62,7 +62,7 @@ impl BufferPool {
     fn reclaim(&self, data: Box<[u8]>) {
         let mut pool = self.inner.lock().unwrap();
 
-        if pool.max_size.is_none() || pool.storage.len() < pool.max_size.unwrap() {
+        if pool.max_cached.is_none() || pool.storage.len() < pool.max_cached.unwrap() {
             log::trace!(
                 "reclaiming buffer {:?} ({} total, {} cached)",
                 data.as_ptr(),
