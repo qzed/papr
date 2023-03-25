@@ -160,7 +160,7 @@ impl Canvas {
                 y_max: (visible_page.y_max + self.tile_size.y - 1) / self.tile_size.y,
             };
 
-            snapshot.push_clip(&screen_rect.into());
+            snapshot.push_clip(&page_clipped.into());
 
             for (ix, iy) in tiles.range_iter() {
                 let tile_id = TileId::new(i, ix, iy, page_rect.size.x);
