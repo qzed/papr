@@ -26,9 +26,7 @@ pub struct Canvas {
     widget: Rc<RefCell<Option<Widget>>>,
     pages: Vec<Page>,
     layout: Layout,
-    tile_size: Vector2<i64>,
-    tile_cache: TileCache,
-    queue: RenderQueue,
+    render: TiledRenderer,
 }
 
 impl Canvas {
@@ -54,20 +52,13 @@ impl Canvas {
         });
 
         let tile_size = vector![512, 512];
-        let tile_cache = TileCache::new();
-
-        let (queue, mut thread) = RenderQueue::new(tile_size, notif_sender);
-
-        // run the render thread
-        std::thread::spawn(move || thread.run());
+        let render = TiledRenderer::new(tile_size, notif_sender);
 
         Self {
             widget,
             pages,
             layout,
-            tile_size,
-            tile_cache,
-            queue,
+            render,
         }
     }
 
@@ -98,13 +89,7 @@ impl Canvas {
         //   The relation between page coordinates and canvas coordinates is
         //   defined by the page offset in the canvas.
 
-        // get fresh tiles
-        while let Some(tile) = self.queue.next() {
-            self.tile_cache.insert(tile);
-        }
-
-        // mark all tiles as invisible
-        self.tile_cache.mark();
+        self.render.render_pre();
 
         // transformation matrix: canvas to viewport
         let m_ctv = {
@@ -145,43 +130,12 @@ impl Canvas {
             // draw background
             snapshot.append_color(&gdk::RGBA::new(1.0, 1.0, 1.0, 1.0), &page_clipped.into());
 
-            // tiled rendering (for now: very inefficient)
-
-            // viewport bounds relative to the page in pixels (area of page visible on screen)
-            let visible_page = Rect::new(-page_rect.offs, na::convert_unchecked(vp.r.size))
-                .clip(&Rect::new(point![0, 0], page_rect.size))
-                .bounds();
-
-            // tile bounds
-            let tiles = Bounds {
-                x_min: visible_page.x_min / self.tile_size.x,
-                y_min: visible_page.y_min / self.tile_size.y,
-                x_max: (visible_page.x_max + self.tile_size.x - 1) / self.tile_size.x,
-                y_max: (visible_page.y_max + self.tile_size.y - 1) / self.tile_size.y,
-            };
-
-            snapshot.push_clip(&page_clipped.into());
-
-            for (ix, iy) in tiles.range_iter() {
-                let tile_id = TileId::new(i, ix, iy, page_rect.size.x);
-
-                // render cached texture or submit render task
-                if let Some(tile) = self.tile_cache.get(&tile_id) {
-                    // draw tile to screen
-                    let tile_offs = vector![ix, iy].component_mul(&self.tile_size);
-                    let tile_screen_rect = Rect::new(page_rect.offs + tile_offs, self.tile_size);
-                    snapshot.append_texture(&tile.texture, &tile_screen_rect.into());
-                } else {
-                    // submit render task
-                    self.queue.submit(page.clone(), page_rect, tile_id);
-                };
-            }
-
-            snapshot.pop();
+            // draw contents
+            self.render.render_page(vp, i, page, &page_rect, &page_clipped, snapshot);
         }
 
         // free all invisible tiles
-        self.tile_cache.evict_invisible();
+        self.render.render_post();
     }
 }
 
@@ -203,6 +157,84 @@ impl TileId {
 pub struct Tile {
     id: TileId,
     texture: gdk::MemoryTexture,
+}
+
+pub struct TiledRenderer {
+    tile_size: Vector2<i64>,
+    cache: TileCache,
+    queue: RenderQueue,
+}
+
+impl TiledRenderer {
+    pub fn new(tile_size: Vector2<i64>, notif: glib::Sender<()>) -> Self {
+        let (queue, mut thread) = RenderQueue::new(tile_size, notif);
+        let cache = TileCache::new();
+
+        // run the render thread
+        std::thread::spawn(move || thread.run());
+
+        Self {
+            tile_size,
+            cache,
+            queue,
+        }
+    }
+
+    pub fn render_pre(&mut self) {
+        // get fresh tiles
+        while let Some(tile) = self.queue.next() {
+            self.cache.insert(tile);
+        }
+
+        // mark all tiles as invisible
+        self.cache.mark();
+    }
+
+    pub fn render_post(&mut self) {
+        self.cache.evict_invisible();
+    }
+
+    pub fn render_page(
+        &mut self,
+        vp: &Viewport,
+        i_page: usize,
+        page: &Page,
+        page_rect: &Rect<i64>,
+        page_clipped: &Rect<i64>,
+        snapshot: &Snapshot,
+    ) {
+        // viewport bounds relative to the page in pixels (area of page visible on screen)
+        let visible_page = Rect::new(-page_rect.offs, na::convert_unchecked(vp.r.size))
+            .clip(&Rect::new(point![0, 0], page_rect.size))
+            .bounds();
+
+        // tile bounds
+        let tiles = Bounds {
+            x_min: visible_page.x_min / self.tile_size.x,
+            y_min: visible_page.y_min / self.tile_size.y,
+            x_max: (visible_page.x_max + self.tile_size.x - 1) / self.tile_size.x,
+            y_max: (visible_page.y_max + self.tile_size.y - 1) / self.tile_size.y,
+        };
+
+        snapshot.push_clip(&(*page_clipped).into());
+
+        for (ix, iy) in tiles.range_iter() {
+            let tile_id = TileId::new(i_page, ix, iy, page_rect.size.x);
+
+            // render cached texture or submit render task
+            if let Some(tile) = self.cache.get(&tile_id) {
+                // draw tile to screen
+                let tile_offs = vector![ix, iy].component_mul(&self.tile_size);
+                let tile_screen_rect = Rect::new(page_rect.offs + tile_offs, self.tile_size);
+                snapshot.append_texture(&tile.texture, &tile_screen_rect.into());
+            } else {
+                // submit render task
+                self.queue.submit(page.clone(), *page_rect, tile_id);
+            };
+        }
+
+        snapshot.pop();
+    }
 }
 
 pub struct TileCache {
