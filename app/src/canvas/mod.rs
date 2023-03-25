@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::mpsc;
 
@@ -24,20 +24,21 @@ use pool::BufferPool;
 
 pub struct Canvas {
     widget: Rc<RefCell<Option<Widget>>>,
-    pages: Vec<PageData>,
+    pages: Vec<Page>,
     layout: Layout,
     tile_size: Vector2<i64>,
+    tile_cache: TileCache,
     queue: RenderQueue,
 }
 
 impl Canvas {
     pub fn create(doc: Document) -> Self {
         let pages: Vec<_> = (0..(doc.pdf.pages().count()))
-            .map(|i| PageData::new(doc.pdf.pages().get(i).unwrap()))
+            .map(|i| doc.pdf.pages().get(i).unwrap())
             .collect();
 
         let layout_provider = VerticalLayout;
-        let layout = layout_provider.compute(pages.iter().map(|d| &d.page), 10.0);
+        let layout = layout_provider.compute(&pages, 10.0);
 
         let widget: Rc<RefCell<Option<Widget>>> = Rc::new(RefCell::new(None));
 
@@ -53,6 +54,8 @@ impl Canvas {
         });
 
         let tile_size = vector![512, 512];
+        let tile_cache = TileCache::new();
+
         let (queue, mut thread) = RenderQueue::new(tile_size, notif_sender);
 
         // run the render thread
@@ -63,6 +66,7 @@ impl Canvas {
             pages,
             layout,
             tile_size,
+            tile_cache,
             queue,
         }
     }
@@ -96,8 +100,11 @@ impl Canvas {
 
         // get fresh tiles
         while let Some(tile) = self.queue.next() {
-            self.pages[tile.id.page].tiles.push(tile);
+            self.tile_cache.insert(tile);
         }
+
+        // mark all tiles as invisible
+        self.tile_cache.mark();
 
         // transformation matrix: canvas to viewport
         let m_ctv = {
@@ -130,12 +137,8 @@ impl Canvas {
             let screen_rect = Rect::new(point![0, 0], na::convert_unchecked(vp.r.size));
             let page_clipped = page_rect.clip(&screen_rect);
 
-            // check if page is in view
+            // check if page is in view, skip rendering if not
             if page_clipped.size.x < 1 || page_clipped.size.y < 1 {
-                // evict cached tiles for invisible pages
-                page.tiles.storage.clear();
-
-                // skip rendering
                 continue;
             }
 
@@ -157,49 +160,28 @@ impl Canvas {
                 y_max: (visible_page.y_max + self.tile_size.y - 1) / self.tile_size.y,
             };
 
-            // mark all tiles as invisible
-            for tile in &mut page.tiles.storage {
-                tile.visible = false;
-            }
-
             snapshot.push_clip(&screen_rect.into());
 
             for (ix, iy) in tiles.range_iter() {
                 let tile_id = TileId::new(i, ix, iy, page_rect.size.x);
 
                 // render cached texture or submit render task
-                if let Some(entry) = page.tiles.find(&tile_id) {
-                    // mark tile as visible
-                    entry.visible = true;
-
+                if let Some(tile) = self.tile_cache.get(&tile_id) {
                     // draw tile to screen
                     let tile_offs = vector![ix, iy].component_mul(&self.tile_size);
                     let tile_screen_rect = Rect::new(page_rect.offs + tile_offs, self.tile_size);
-                    snapshot.append_texture(&entry.tile.texture, &tile_screen_rect.into());
+                    snapshot.append_texture(&tile.texture, &tile_screen_rect.into());
                 } else {
                     // submit render task
-                    self.queue.submit(page.page.clone(), page_rect, tile_id);
+                    self.queue.submit(page.clone(), page_rect, tile_id);
                 };
             }
 
             snapshot.pop();
-
-            // free all invisible tiles
-            page.tiles.storage.retain(|t| t.visible);
         }
-    }
-}
 
-struct PageData {
-    page: Page,
-    tiles: TileCache,
-}
-
-impl PageData {
-    fn new(page: Page) -> PageData {
-        let tiles = TileCache::new();
-
-        Self { page, tiles }
+        // free all invisible tiles
+        self.tile_cache.evict_invisible();
     }
 }
 
@@ -224,32 +206,49 @@ pub struct Tile {
 }
 
 pub struct TileCache {
-    storage: Vec<TileCacheEntry>,
+    storage: HashMap<TileId, TileCacheEntry>,
 }
 
-pub struct TileCacheEntry {
-    pub visible: bool,
-    pub tile: Tile,
+struct TileCacheEntry {
+    visible: bool,
+    tile: Tile,
 }
 
 impl TileCache {
     pub fn new() -> Self {
         Self {
-            storage: Vec::new(),
+            storage: HashMap::new(),
         }
     }
 
-    pub fn find(&mut self, id: &TileId) -> Option<&mut TileCacheEntry> {
-        self.storage.iter_mut().find(|entry| &entry.tile.id == id)
+    pub fn get(&mut self, id: &TileId) -> Option<&Tile> {
+        if let Some(entry) = self.storage.get_mut(id) {
+            entry.visible = true;
+            Some(&entry.tile)
+        } else {
+            None
+        }
     }
 
-    pub fn push(&mut self, tile: Tile) {
+    pub fn insert(&mut self, tile: Tile) {
+        let id = tile.id;
+
         let entry = TileCacheEntry {
             visible: true,
             tile,
         };
 
-        self.storage.push(entry);
+        self.storage.insert(id, entry);
+    }
+
+    pub fn mark(&mut self) {
+        for entry in self.storage.values_mut() {
+            entry.visible = false;
+        }
+    }
+
+    pub fn evict_invisible(&mut self) {
+        self.storage.retain(|_, e| e.visible);
     }
 }
 
@@ -358,7 +357,7 @@ impl RenderQueue {
     }
 
     pub fn is_pending(&self, tile_id: &TileId) -> bool {
-        self.pending.contains(&tile_id)
+        self.pending.contains(tile_id)
     }
 
     pub fn submit(&mut self, page: Page, page_rect: Rect<i64>, tile_id: TileId) {

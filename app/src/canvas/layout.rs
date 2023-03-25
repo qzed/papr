@@ -11,14 +11,14 @@ pub struct Layout {
 }
 
 pub trait LayoutProvider {
-    fn compute<'a>(&self, pages: impl Iterator<Item = &'a Page>, space: f64) -> Layout;
+    fn compute<'a>(&self, pages: impl IntoIterator<Item = &'a Page>, space: f64) -> Layout;
 }
 
 pub struct VerticalLayout;
 pub struct HorizontalLayout;
 
 impl LayoutProvider for VerticalLayout {
-    fn compute<'a>(&self, pages: impl Iterator<Item = &'a Page>, space: f64) -> Layout {
+    fn compute<'a>(&self, pages: impl IntoIterator<Item = &'a Page>, space: f64) -> Layout {
         let mut rects: Vec<Rect<f64>> = pages
             .into_iter()
             .map(|p| Rect::new(point![0.0, 0.0], na::convert(p.size())))
@@ -49,7 +49,7 @@ impl LayoutProvider for VerticalLayout {
 }
 
 impl LayoutProvider for HorizontalLayout {
-    fn compute<'a>(&self, pages: impl Iterator<Item = &'a Page>, space: f64) -> Layout {
+    fn compute<'a>(&self, pages: impl IntoIterator<Item = &'a Page>, space: f64) -> Layout {
         let mut rects: Vec<Rect<f64>> = pages
             .into_iter()
             .map(|p| Rect::new(point![0.0, 0.0], na::convert(p.size())))
