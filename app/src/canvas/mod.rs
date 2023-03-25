@@ -22,6 +22,10 @@ pub use layout::{HorizontalLayout, Layout, LayoutProvider, VerticalLayout};
 mod pool;
 use pool::BufferPool;
 
+mod tile;
+use self::tile::TileId;
+type Tile = self::tile::Tile<gdk::MemoryTexture>;
+
 pub struct Canvas {
     widget: Rc<RefCell<Option<Widget>>>,
     pages: Vec<Page>,
@@ -139,26 +143,6 @@ impl Canvas {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct TileId {
-    pub page: usize,
-    pub x: i64,
-    pub y: i64,
-    pub z: i64,
-}
-
-impl TileId {
-    pub fn new(page: usize, x: i64, y: i64, z: i64) -> Self {
-        Self { page, x, y, z }
-    }
-}
-
-#[derive(Debug)]
-pub struct Tile {
-    id: TileId,
-    texture: gdk::MemoryTexture,
-}
-
 pub struct TiledRenderer {
     tile_size: Vector2<i64>,
     cache: TileCache,
@@ -226,7 +210,7 @@ impl TiledRenderer {
                 // draw tile to screen
                 let tile_offs = vector![ix, iy].component_mul(&self.tile_size);
                 let tile_screen_rect = Rect::new(page_rect.offs + tile_offs, self.tile_size);
-                snapshot.append_texture(&tile.texture, &tile_screen_rect.into());
+                snapshot.append_texture(&tile.data, &tile_screen_rect.into());
             } else {
                 // submit render task
                 self.queue.submit(page.clone(), *page_rect, tile_id);
@@ -338,8 +322,7 @@ impl TileRenderer {
         );
 
         // create tile
-        let tile = Tile { id: *id, texture };
-        Ok(tile)
+        Ok(Tile::new(*id, texture))
     }
 }
 
