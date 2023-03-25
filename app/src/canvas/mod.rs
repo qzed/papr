@@ -19,8 +19,7 @@ use crate::types::{Bounds, Rect, Viewport};
 mod layout;
 pub use layout::{HorizontalLayout, Layout, LayoutProvider, VerticalLayout};
 
-mod pool;
-use pool::BufferPool;
+use crate::utils::bufpool::BufferPool;
 
 mod tile;
 use self::tile::TileId;
