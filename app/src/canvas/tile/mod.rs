@@ -1,3 +1,6 @@
+mod cache;
+pub use cache::TileCache;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TileId {
     pub page: usize,

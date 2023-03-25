@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::rc::Rc;
 use std::sync::mpsc;
 
@@ -23,7 +23,9 @@ use crate::utils::bufpool::BufferPool;
 
 mod tile;
 use self::tile::TileId;
+
 type Tile = self::tile::Tile<gdk::MemoryTexture>;
+type TileCache = self::tile::TileCache<gdk::MemoryTexture>;
 
 pub struct Canvas {
     widget: Rc<RefCell<Option<Widget>>>,
@@ -169,12 +171,12 @@ impl TiledRenderer {
             self.cache.insert(tile);
         }
 
-        // mark all tiles as invisible
+        // mark all tiles as unused
         self.cache.mark();
     }
 
     pub fn render_post(&mut self) {
-        self.cache.evict_invisible();
+        self.cache.evict_unused();
     }
 
     pub fn render_page(
@@ -217,53 +219,6 @@ impl TiledRenderer {
         }
 
         snapshot.pop();
-    }
-}
-
-pub struct TileCache {
-    storage: HashMap<TileId, TileCacheEntry>,
-}
-
-struct TileCacheEntry {
-    visible: bool,
-    tile: Tile,
-}
-
-impl TileCache {
-    pub fn new() -> Self {
-        Self {
-            storage: HashMap::new(),
-        }
-    }
-
-    pub fn get(&mut self, id: &TileId) -> Option<&Tile> {
-        if let Some(entry) = self.storage.get_mut(id) {
-            entry.visible = true;
-            Some(&entry.tile)
-        } else {
-            None
-        }
-    }
-
-    pub fn insert(&mut self, tile: Tile) {
-        let id = tile.id;
-
-        let entry = TileCacheEntry {
-            visible: true,
-            tile,
-        };
-
-        self.storage.insert(id, entry);
-    }
-
-    pub fn mark(&mut self) {
-        for entry in self.storage.values_mut() {
-            entry.visible = false;
-        }
-    }
-
-    pub fn evict_invisible(&mut self) {
-        self.storage.retain(|_, e| e.visible);
     }
 }
 
