@@ -60,6 +60,81 @@ impl<T> Bounds<T> {
     {
         self.range_x().cartesian_product(self.range_y())
     }
+
+    pub fn clip(&self, other: &Bounds<T>) -> Self
+    where
+        T: Scalar,
+        T: Copy,
+        T: PartialOrd,
+        T: Add<T, Output = T>,
+        T: Sub<T, Output = T>,
+    {
+        fn min<T>(a: T, b: T) -> T
+        where
+            T: Copy,
+            T: PartialOrd,
+            T: Add<T, Output = T>,
+            T: Sub<T, Output = T>,
+        {
+            if a < b {
+                a
+            } else {
+                b
+            }
+        }
+
+        fn max<T>(a: T, b: T) -> T
+        where
+            T: Copy,
+            T: PartialOrd,
+            T: Add<T, Output = T>,
+            T: Sub<T, Output = T>,
+        {
+            if a > b {
+                a
+            } else {
+                b
+            }
+        }
+
+        Bounds {
+            x_min: max(self.x_min, other.x_min),
+            y_min: max(self.y_min, other.y_min),
+            x_max: min(self.x_max, other.x_max),
+            y_max: min(self.y_max, other.y_max),
+        }
+    }
+
+    pub fn intersects(&self, other: &Bounds<T>) -> bool
+    where
+        T: PartialOrd,
+    {
+        self.x_min < other.x_max
+            && self.x_max > other.x_min
+            && self.y_min < other.y_max
+            && self.y_max > other.y_min
+    }
+
+    pub fn contains(&self, other: &Bounds<T>) -> bool
+    where
+        T: PartialOrd,
+    {
+        self.x_min >= other.x_max
+            && self.x_max <= other.x_min
+            && self.y_min >= other.y_max
+            && self.y_max <= other.y_min
+    }
+
+    pub fn contains_point(&self, point: &Point2<T>) -> bool
+    where
+        T: Scalar,
+        T: PartialOrd,
+    {
+        self.x_min <= point.x
+            && self.x_max > point.x
+            && self.y_min <= point.y
+            && self.y_max > point.y
+    }
 }
 
 impl<T> From<Rect<T>> for Bounds<T>
@@ -125,44 +200,37 @@ impl<T: Scalar> Rect<T> {
         T: Add<T, Output = T>,
         T: Sub<T, Output = T>,
     {
-        fn min<T>(a: T, b: T) -> T
-        where
-            T: Copy,
-            T: PartialOrd,
-            T: Add<T, Output = T>,
-            T: Sub<T, Output = T>,
-        {
-            if a < b {
-                a
-            } else {
-                b
-            }
-        }
+        self.bounds().clip(&other.bounds()).rect()
+    }
 
-        fn max<T>(a: T, b: T) -> T
-        where
-            T: Copy,
-            T: PartialOrd,
-            T: Add<T, Output = T>,
-            T: Sub<T, Output = T>,
-        {
-            if a > b {
-                a
-            } else {
-                b
-            }
-        }
+    pub fn intersects(&self, other: &Rect<T>) -> bool
+    where
+        T: Copy,
+        T: PartialOrd,
+        T: Add<T, Output = T>,
+        T: Sub<T, Output = T>,
+    {
+        self.bounds().intersects(&other.bounds())
+    }
 
-        let offs = point![
-            max(self.offs.x, other.offs.x),
-            max(self.offs.y, other.offs.y)
-        ];
-        let size = vector![
-            min(self.offs.x + self.size.x, other.offs.x + other.size.x) - offs.x,
-            min(self.offs.y + self.size.y, other.offs.y + other.size.y) - offs.y
-        ];
+    pub fn contains(&self, other: &Rect<T>) -> bool
+    where
+        T: Copy,
+        T: PartialOrd,
+        T: Add<T, Output = T>,
+        T: Sub<T, Output = T>,
+    {
+        self.bounds().contains(&other.bounds())
+    }
 
-        Self { offs, size }
+    pub fn contains_point(&self, point: &Point2<T>) -> bool
+    where
+        T: Copy,
+        T: PartialOrd,
+        T: Add<T, Output = T>,
+        T: Sub<T, Output = T>,
+    {
+        self.bounds().contains_point(point)
     }
 
     pub fn round(&self) -> Self

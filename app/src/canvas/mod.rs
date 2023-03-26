@@ -1,5 +1,6 @@
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::cmp::Ordering;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::atomic::AtomicBool;
 use std::sync::{mpsc, Arc};
@@ -26,7 +27,6 @@ mod tile;
 use self::tile::TileId;
 
 type Tile = self::tile::Tile<gdk::MemoryTexture>;
-type TileCache = self::tile::TileCache<CacheEntry>;
 
 pub struct Canvas {
     widget: Rc<RefCell<Option<Widget>>>,
@@ -147,21 +147,27 @@ impl Canvas {
 
 pub struct TiledRenderer {
     tile_size: Vector2<i64>,
-    cache: TileCache,
+    cached: HashMap<usize, HashMap<TileId, Tile>>,
+    pending: HashMap<usize, HashSet<TileId>>,
+    visible: HashSet<usize>,
     queue: RenderQueue,
 }
 
 impl TiledRenderer {
     pub fn new(tile_size: Vector2<i64>, notif: glib::Sender<()>) -> Self {
         let (queue, mut thread) = RenderQueue::new(tile_size, notif);
-        let cache = TileCache::new();
+        let cached = HashMap::new();
+        let pending = HashMap::new();
+        let visible = HashSet::new();
 
         // run the render thread
         std::thread::spawn(move || thread.run());
 
         Self {
             tile_size,
-            cache,
+            cached,
+            pending,
+            visible,
             queue,
         }
     }
@@ -169,25 +175,25 @@ impl TiledRenderer {
     pub fn render_pre(&mut self) {
         // get fresh tiles
         while let Some(tile) = self.queue.next() {
-            let tile = crate::canvas::tile::Tile {
-                id: tile.id,
-                data: CacheEntry::Texture(tile.data),
-            };
-            self.cache.insert(tile);
-        }
+            // remove from pending
+            let pending = self.pending.get_mut(&tile.id.page).unwrap();
+            pending.remove(&tile.id);
+            if pending.is_empty() {
+                self.pending.remove(&tile.id.page);
+            }
 
-        // mark all tiles as unused
-        self.cache.mark();
+            // add to cached
+            self.cached
+                .entry(tile.id.page)
+                .or_insert_with(HashMap::new)
+                .insert(tile.id, tile);
+        }
     }
 
     pub fn render_post(&mut self) {
-        for (in_use, tile) in self.cache.entries() {
-            if !in_use {
-                self.queue.cancel(&tile.id);
-            }
-        }
-
-        self.cache.evict_unused();
+        // remove out-of-view pages from cache
+        self.cached.retain(|page, _| self.visible.contains(page));
+        self.visible.clear();
     }
 
     pub fn render_page(
@@ -212,36 +218,178 @@ impl TiledRenderer {
             y_max: (visible_page.y_max + self.tile_size.y - 1) / self.tile_size.y,
         };
 
+        // mark page as visible
+        self.visible.insert(i_page);
+
+        // get cached tiles for page
+        let mut fallback = HashMap::new();
+        let cached = self.cached.get_mut(&i_page).unwrap_or(&mut fallback);
+        let pending = self.pending.entry(i_page).or_insert_with(HashSet::new);
+        let iz = page_rect.size.x;
+
+        // request new tiles if not cached or pending
+        for (ix, iy) in tiles.range_iter() {
+            let tile_id = TileId::new(i_page, ix, iy, iz);
+
+            if !cached.contains_key(&tile_id) && !pending.contains(&tile_id) {
+                pending.insert(tile_id);
+                self.queue.submit(page.clone(), *page_rect, tile_id);
+            }
+        }
+
+        // find unused/occluded tiles and remove them
+        let keys: HashSet<_> = cached.keys().cloned().collect();
+
+        cached.retain(|_, t| {
+            // check if tile is in view
+            let tile_rect = if t.id.z == iz {
+                let tile_offs = vector![t.id.x, t.id.y].component_mul(&self.tile_size);
+                Rect::new(page_rect.offs + tile_offs, self.tile_size)
+
+            } else {
+                // compute pixel coordinates in the original page
+                let tile_offs = vector![t.id.x, t.id.y].component_mul(&self.tile_size);
+                let tile_rect = Rect::new(tile_offs.into(), self.tile_size).bounds();
+
+                // compute pixel coordinates in the current page
+                let scale = iz as f64 / t.id.z as f64;
+                let tile_rect = Bounds {
+                    x_min: tile_rect.x_min as f64 * scale + page_rect.offs.x as f64,
+                    y_min: tile_rect.y_min as f64 * scale + page_rect.offs.y as f64,
+                    x_max: tile_rect.x_max as f64 * scale + page_rect.offs.x as f64,
+                    y_max: tile_rect.y_max as f64 * scale + page_rect.offs.y as f64,
+                };
+
+                let tile_rect = Bounds {
+                    x_min: tile_rect.x_min.floor() as i64,
+                    y_min: tile_rect.y_min.floor() as i64,
+                    x_max: tile_rect.x_max.ceil() as i64,
+                    y_max: tile_rect.y_max.ceil() as i64,
+                };
+
+                tile_rect.into()
+            };
+
+            let vpz_rect = Rect::new(point![0, 0], na::convert_unchecked(vp.r.size));
+            if !tile_rect.intersects(&vpz_rect) {
+                return false;
+            }
+
+            // check if tile is replaced by ones with the current z-level
+            if t.id.z != iz {
+                // note: this does not check if e.g. a lower-z tile is occluded
+                // by higher-z tiles, only if a tile is fully occluded by tiles
+                // on the current z-level
+
+                // compute pixel coordinates in the original page
+                let tile_offs = vector![t.id.x, t.id.y].component_mul(&self.tile_size);
+                let tile_rect = Rect::new(tile_offs.into(), self.tile_size).bounds();
+
+                // compute pixel coordinates in the current page
+                let scale = iz as f64 / t.id.z as f64;
+                let tile_rect = Bounds {
+                    x_min: (tile_rect.x_min as f64 * scale).floor(),
+                    y_min: (tile_rect.y_min as f64 * scale).floor(),
+                    x_max: (tile_rect.x_max as f64 * scale).ceil(),
+                    y_max: (tile_rect.y_max as f64 * scale).ceil(),
+                };
+
+                // compute tile IDs required to fully cover this
+                let req = Bounds {
+                    x_min: tile_rect.x_min as i64 / self.tile_size.x,
+                    y_min: tile_rect.y_min as i64 / self.tile_size.y,
+                    x_max: (tile_rect.x_max as i64 + self.tile_size.x - 1) / self.tile_size.x,
+                    y_max: (tile_rect.y_max as i64 + self.tile_size.y - 1) / self.tile_size.y,
+                };
+
+                return !req
+                    .clip(&tiles)
+                    .range_iter()
+                    .all(|(x, y)| keys.contains(&TileId::new(i_page, x, y, iz)));
+            }
+
+            true
+        });
+
+        pending.retain(|id| {
+            // stop loading anything that is not on the current zoom level
+            if id.z != iz {
+                self.queue.cancel(id);
+                return false;
+            }
+
+            // stop loading tiles if not in view
+            let tile_offs = vector![id.x, id.y].component_mul(&self.tile_size);
+            let tile_screen_rect = Rect::new(page_rect.offs + tile_offs, self.tile_size);
+            let vpz_rect = Rect::new(point![0, 0], na::convert_unchecked(vp.r.size));
+
+            if !tile_screen_rect.intersects(&vpz_rect) {
+                self.queue.cancel(id);
+                return false;
+            }
+
+            // otherwise: keep loading
+            true
+        });
+
+        // build ordered render list
+        let mut rlist: Vec<_> = cached.values().collect();
+
+        rlist.sort_unstable_by(|a, b| {
+            // sort by z-level:
+            // - put all tiles with current z-level last
+            // - sort rest in descending order (i.e., coarser tiles first)
+
+            if a.id.z == b.id.z {
+                // same z-levels are always equal
+                Ordering::Equal
+            } else if a.id.z == iz {
+                // put current z-level last
+                Ordering::Greater
+            } else if b.id.z == iz {
+                // put current z-level last
+                Ordering::Less
+            } else {
+                // sort by z-level, descending
+                if a.id.z < b.id.z {
+                    Ordering::Greater
+                } else {
+                    Ordering::Less
+                }
+            }
+        });
+
+        // render tiles
         snapshot.push_clip(&(*page_clipped).into());
 
-        for (ix, iy) in tiles.range_iter() {
-            let tile_id = TileId::new(i_page, ix, iy, page_rect.size.x);
+        for tile in &rlist {
+            let tile_rect = if tile.id.z == iz {
+                let tile_offs = vector![tile.id.x, tile.id.y].component_mul(&self.tile_size);
+                let tile_rect = Rect::new(page_rect.offs + tile_offs, self.tile_size);
 
-            // render cached texture or submit render task
-            if let Some(entry) = self.cache.get(&tile_id) {
-                if let CacheEntry::Texture(ref data) = entry.data {
-                    // draw tile to screen
-                    let tile_offs = vector![ix, iy].component_mul(&self.tile_size);
-                    let tile_screen_rect = Rect::new(page_rect.offs + tile_offs, self.tile_size);
-                    snapshot.append_texture(data, &tile_screen_rect.into());
-                }
+                tile_rect.into()
             } else {
-                // submit render task
-                self.cache.insert(crate::canvas::tile::Tile {
-                    id: tile_id,
-                    data: CacheEntry::Pending,
-                });
-                self.queue.submit(page.clone(), *page_rect, tile_id);
+                // compute pixel coordinates in the original page
+                let tile_offs = vector![tile.id.x, tile.id.y].component_mul(&self.tile_size);
+                let tile_rect = Rect::new(tile_offs.into(), self.tile_size).bounds();
+
+                // compute pixel coordinates in the current page
+                let scale = iz as f64 / tile.id.z as f64;
+                let tile_rect = Bounds {
+                    x_min: tile_rect.x_min as f64 * scale + page_rect.offs.x as f64,
+                    y_min: tile_rect.y_min as f64 * scale + page_rect.offs.y as f64,
+                    x_max: tile_rect.x_max as f64 * scale + page_rect.offs.x as f64,
+                    y_max: tile_rect.y_max as f64 * scale + page_rect.offs.y as f64,
+                };
+
+                tile_rect.into()
             };
+
+            snapshot.append_texture(&tile.data, &tile_rect);
         }
 
         snapshot.pop();
     }
-}
-
-enum CacheEntry {
-    Pending,
-    Texture(gdk::MemoryTexture),
 }
 
 struct TileRenderer {
@@ -274,6 +422,13 @@ impl TileRenderer {
                 &mut buffer[..],
                 stride as _,
             )?;
+            bmp.fill_rect(
+                0,
+                0,
+                self.tile_size.x as _,
+                self.tile_size.y as _,
+                pdfium::bitmap::Color::WHITE,
+            );
 
             // set up render layout
             let layout = PageRenderLayout {
