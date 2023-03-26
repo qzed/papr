@@ -31,6 +31,7 @@ type Tile = self::tile::Tile<gdk::MemoryTexture>;
 pub struct Canvas {
     widget: Rc<RefCell<Option<Widget>>>,
     pages: Vec<Page>,
+    fallbacks: Vec<gdk::MemoryTexture>,
     layout: Layout,
     render: TiledRenderer,
 }
@@ -60,9 +61,48 @@ impl Canvas {
         let tile_size = vector![1024, 1024];
         let render = TiledRenderer::new(tile_size, notif_sender);
 
+        // pre-render some fallback images
+        let mut fallbacks = Vec::with_capacity(pages.len());
+        for page in &pages {
+            let lib = page.library().clone();
+            let size = page.size();
+
+            let width: u32 = 512;
+            let scale = width as f32 / size.x as f32;
+            let height = (scale * size.y as f32).round() as u32;
+
+            let format = BitmapFormat::Bgra;
+            let mut bmp = Bitmap::uninitialized(lib, width, height, format).unwrap();
+            bmp.fill_rect(0, 0, width, height, pdfium::bitmap::Color::WHITE);
+
+            // set up render layout
+            let layout = PageRenderLayout {
+                start: point![0, 0],
+                size: vector![width as i32, height as i32],
+                rotate: PageRotation::None,
+            };
+
+            // render page to bitmap
+            let flags = RenderFlags::LcdText | RenderFlags::Annotations;
+            page.render(&mut bmp, &layout, flags).unwrap();
+
+            // create GTK/GDK texture
+            let bytes = glib::Bytes::from(bmp.buf());
+            let texture = gdk::MemoryTexture::new(
+                width as _,
+                height as _,
+                gdk::MemoryFormat::B8g8r8a8,
+                &bytes,
+                bmp.stride() as _,
+            );
+
+            fallbacks.push(texture);
+        }
+
         Self {
             widget,
             pages,
+            fallbacks,
             layout,
             render,
         }
@@ -136,8 +176,12 @@ impl Canvas {
             // draw background
             snapshot.append_color(&gdk::RGBA::new(1.0, 1.0, 1.0, 1.0), &page_clipped.into());
 
+            // draw fallback
+            snapshot.append_texture(&self.fallbacks[i], &page_rect.into());
+
             // draw contents
-            self.render.render_page(vp, i, page, &page_rect, &page_clipped, snapshot);
+            self.render
+                .render_page(vp, i, page, &page_rect, &page_clipped, snapshot);
         }
 
         // free all invisible tiles
@@ -245,7 +289,6 @@ impl TiledRenderer {
             let tile_rect = if t.id.z == iz {
                 let tile_offs = vector![t.id.x, t.id.y].component_mul(&self.tile_size);
                 Rect::new(page_rect.offs + tile_offs, self.tile_size)
-
             } else {
                 // compute pixel coordinates in the original page
                 let tile_offs = vector![t.id.x, t.id.y].component_mul(&self.tile_size);
