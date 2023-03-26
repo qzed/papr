@@ -43,4 +43,8 @@ impl<T> TileCache<T> {
     pub fn evict_unused(&mut self) {
         self.storage.retain(|_, e| e.in_use);
     }
+
+    pub fn entries<'a>(&'a self) -> impl Iterator<Item = (bool, &'a Tile<T>)> {
+        self.storage.values().map(|e| (e.in_use, &e.tile))
+    }
 }

@@ -1,7 +1,8 @@
 use std::cell::RefCell;
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::rc::Rc;
-use std::sync::mpsc;
+use std::sync::atomic::AtomicBool;
+use std::sync::{mpsc, Arc};
 
 use gtk::traits::{SnapshotExt, WidgetExt};
 use gtk::{gdk, glib};
@@ -25,7 +26,7 @@ mod tile;
 use self::tile::TileId;
 
 type Tile = self::tile::Tile<gdk::MemoryTexture>;
-type TileCache = self::tile::TileCache<gdk::MemoryTexture>;
+type TileCache = self::tile::TileCache<CacheEntry>;
 
 pub struct Canvas {
     widget: Rc<RefCell<Option<Widget>>>,
@@ -168,6 +169,10 @@ impl TiledRenderer {
     pub fn render_pre(&mut self) {
         // get fresh tiles
         while let Some(tile) = self.queue.next() {
+            let tile = crate::canvas::tile::Tile {
+                id: tile.id,
+                data: CacheEntry::Texture(tile.data),
+            };
             self.cache.insert(tile);
         }
 
@@ -176,6 +181,12 @@ impl TiledRenderer {
     }
 
     pub fn render_post(&mut self) {
+        for (in_use, tile) in self.cache.entries() {
+            if !in_use {
+                self.queue.cancel(&tile.id);
+            }
+        }
+
         self.cache.evict_unused();
     }
 
@@ -207,19 +218,30 @@ impl TiledRenderer {
             let tile_id = TileId::new(i_page, ix, iy, page_rect.size.x);
 
             // render cached texture or submit render task
-            if let Some(tile) = self.cache.get(&tile_id) {
-                // draw tile to screen
-                let tile_offs = vector![ix, iy].component_mul(&self.tile_size);
-                let tile_screen_rect = Rect::new(page_rect.offs + tile_offs, self.tile_size);
-                snapshot.append_texture(&tile.data, &tile_screen_rect.into());
+            if let Some(entry) = self.cache.get(&tile_id) {
+                if let CacheEntry::Texture(ref data) = entry.data {
+                    // draw tile to screen
+                    let tile_offs = vector![ix, iy].component_mul(&self.tile_size);
+                    let tile_screen_rect = Rect::new(page_rect.offs + tile_offs, self.tile_size);
+                    snapshot.append_texture(data, &tile_screen_rect.into());
+                }
             } else {
                 // submit render task
+                self.cache.insert(crate::canvas::tile::Tile {
+                    id: tile_id,
+                    data: CacheEntry::Pending,
+                });
                 self.queue.submit(page.clone(), *page_rect, tile_id);
             };
         }
 
         snapshot.pop();
     }
+}
+
+enum CacheEntry {
+    Pending,
+    Texture(gdk::MemoryTexture),
 }
 
 struct TileRenderer {
@@ -287,7 +309,7 @@ impl TileRenderer {
 pub struct RenderQueue {
     sender: mpsc::Sender<RenderTask>,
     receiver: mpsc::Receiver<Tile>,
-    pending: HashSet<TileId>,
+    pending: HashMap<TileId, Arc<AtomicBool>>,
 }
 
 pub struct RenderThread {
@@ -301,6 +323,7 @@ struct RenderTask {
     page: Page,
     page_rect: Rect<i64>,
     tile_id: TileId,
+    canceled: Arc<AtomicBool>,
 }
 
 impl RenderQueue {
@@ -312,7 +335,7 @@ impl RenderQueue {
         let queue = RenderQueue {
             sender: task_sender,
             receiver: tile_receiver,
-            pending: HashSet::new(),
+            pending: HashMap::new(),
         };
 
         let thread = RenderThread {
@@ -326,7 +349,7 @@ impl RenderQueue {
     }
 
     pub fn is_pending(&self, tile_id: &TileId) -> bool {
-        self.pending.contains(tile_id)
+        self.pending.contains_key(tile_id)
     }
 
     pub fn submit(&mut self, page: Page, page_rect: Rect<i64>, tile_id: TileId) {
@@ -334,14 +357,23 @@ impl RenderQueue {
             return;
         }
 
+        let canceled = Arc::new(AtomicBool::new(false));
+
         let task = RenderTask {
             page,
             page_rect,
             tile_id,
+            canceled: canceled.clone(),
         };
 
-        self.pending.insert(tile_id);
+        self.pending.insert(tile_id, canceled);
         self.sender.send(task).unwrap();
+    }
+
+    pub fn cancel(&mut self, tile_id: &TileId) {
+        if let Some(flag) = self.pending.remove(tile_id) {
+            flag.store(true, std::sync::atomic::Ordering::Release)
+        }
     }
 
     pub fn next(&mut self) -> Option<Tile> {
@@ -359,6 +391,10 @@ impl RenderQueue {
 impl RenderThread {
     pub fn run(&mut self) {
         while let Ok(task) = self.receiver.recv() {
+            if task.canceled.load(std::sync::atomic::Ordering::Acquire) {
+                continue;
+            }
+
             log::trace!(
                 "rendering tile: ({}, {}, {}, {})",
                 task.tile_id.page,
