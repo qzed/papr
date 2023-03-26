@@ -57,7 +57,7 @@ impl Canvas {
             glib::Continue(true)
         });
 
-        let tile_size = vector![512, 512];
+        let tile_size = vector![1024, 1024];
         let render = TiledRenderer::new(tile_size, notif_sender);
 
         Self {
