@@ -1,10 +1,13 @@
-use std::ops::{Add, Range, Sub, AddAssign};
+use std::ops::{Add, AddAssign, Mul, Range, Sub};
 
 use gtk::graphene;
 use itertools::{Itertools, Product};
-use nalgebra::{point, vector};
-use nalgebra::{Point2, Scalar, Vector2};
 use num_traits::{Float, Zero};
+use simba::scalar::SubsetOf;
+
+use na::{point, vector, RealField};
+use na::{Point2, Scalar, Vector2};
+use nalgebra as na;
 
 #[derive(Debug, Clone, Copy)]
 pub struct Bounds<T> {
@@ -15,6 +18,7 @@ pub struct Bounds<T> {
 }
 
 impl<T> Bounds<T> {
+    #[inline]
     pub fn zero() -> Self
     where
         T: Zero,
@@ -27,6 +31,7 @@ impl<T> Bounds<T> {
         }
     }
 
+    #[inline]
     pub fn rect(&self) -> Rect<T>
     where
         T: Copy,
@@ -39,6 +44,7 @@ impl<T> Bounds<T> {
         }
     }
 
+    #[inline]
     pub fn range_x(&self) -> Range<T>
     where
         T: Copy,
@@ -46,6 +52,7 @@ impl<T> Bounds<T> {
         (self.x_min)..(self.x_max)
     }
 
+    #[inline]
     pub fn range_y(&self) -> Range<T>
     where
         T: Copy,
@@ -61,6 +68,7 @@ impl<T> Bounds<T> {
         self.range_x().cartesian_product(self.range_y())
     }
 
+    #[inline]
     pub fn clip(&self, other: &Bounds<T>) -> Self
     where
         T: Scalar,
@@ -105,6 +113,7 @@ impl<T> Bounds<T> {
         }
     }
 
+    #[inline]
     pub fn intersects(&self, other: &Bounds<T>) -> bool
     where
         T: PartialOrd,
@@ -115,6 +124,7 @@ impl<T> Bounds<T> {
             && self.y_max > other.y_min
     }
 
+    #[inline]
     pub fn contains(&self, other: &Bounds<T>) -> bool
     where
         T: PartialOrd,
@@ -125,6 +135,7 @@ impl<T> Bounds<T> {
             && self.y_max <= other.y_min
     }
 
+    #[inline]
     pub fn contains_point(&self, point: &Point2<T>) -> bool
     where
         T: Scalar,
@@ -136,6 +147,7 @@ impl<T> Bounds<T> {
             && self.y_max > point.y
     }
 
+    #[inline]
     pub fn translate(&self, offset: &Vector2<T>) -> Self
     where
         T: Scalar + Copy,
@@ -146,6 +158,64 @@ impl<T> Bounds<T> {
             x_max: self.x_max + offset.x,
             y_min: self.y_min + offset.y,
             y_max: self.y_max + offset.y,
+        }
+    }
+
+    #[inline]
+    pub fn scale(&self, scale: T) -> Self
+    where
+        T: Scalar + Copy,
+        T: Mul<T, Output = T>,
+    {
+        Self {
+            x_min: self.x_min * scale,
+            x_max: self.x_max * scale,
+            y_min: self.y_min * scale,
+            y_max: self.y_max * scale,
+        }
+    }
+
+    #[inline]
+    pub fn cast<U>(&self) -> Bounds<U>
+    where
+        T: Scalar + Copy,
+        U: Scalar,
+        T: SubsetOf<U>,
+    {
+        Bounds {
+            x_min: na::convert(self.x_min),
+            y_min: na::convert(self.y_min),
+            x_max: na::convert(self.x_max),
+            y_max: na::convert(self.y_max),
+        }
+    }
+
+    #[inline]
+    pub fn cast_unchecked<U>(&self) -> Bounds<U>
+    where
+        T: Copy,
+        U: Scalar,
+        U: SubsetOf<T>,
+    {
+        Bounds {
+            x_min: na::convert_unchecked(self.x_min),
+            y_min: na::convert_unchecked(self.y_min),
+            x_max: na::convert_unchecked(self.x_max),
+            y_max: na::convert_unchecked(self.y_max),
+        }
+    }
+
+    #[inline]
+    pub fn round_outwards(&self) -> Self
+    where
+        T: Copy,
+        T: RealField,
+    {
+        Self {
+            x_min: self.x_min.floor(),
+            y_min: self.y_min.floor(),
+            x_max: self.x_max.ceil(),
+            y_max: self.y_max.ceil(),
         }
     }
 }
@@ -185,10 +255,12 @@ pub struct Rect<T: Scalar> {
 }
 
 impl<T: Scalar> Rect<T> {
+    #[inline]
     pub fn new(offs: Point2<T>, size: Vector2<T>) -> Self {
         Self { offs, size }
     }
 
+    #[inline]
     pub fn clip(&self, other: &Rect<T>) -> Self
     where
         T: Copy,
@@ -199,6 +271,7 @@ impl<T: Scalar> Rect<T> {
         self.bounds().clip(&other.bounds()).rect()
     }
 
+    #[inline]
     pub fn intersects(&self, other: &Rect<T>) -> bool
     where
         T: Copy,
@@ -209,6 +282,7 @@ impl<T: Scalar> Rect<T> {
         self.bounds().intersects(&other.bounds())
     }
 
+    #[inline]
     pub fn contains(&self, other: &Rect<T>) -> bool
     where
         T: Copy,
@@ -219,6 +293,7 @@ impl<T: Scalar> Rect<T> {
         self.bounds().contains(&other.bounds())
     }
 
+    #[inline]
     pub fn contains_point(&self, point: &Point2<T>) -> bool
     where
         T: Copy,
@@ -229,6 +304,7 @@ impl<T: Scalar> Rect<T> {
         self.bounds().contains_point(point)
     }
 
+    #[inline]
     pub fn round(&self) -> Self
     where
         T: Float,
@@ -239,6 +315,7 @@ impl<T: Scalar> Rect<T> {
         }
     }
 
+    #[inline]
     pub fn bounds(&self) -> Bounds<T>
     where
         T: Copy,
@@ -252,6 +329,7 @@ impl<T: Scalar> Rect<T> {
         }
     }
 
+    #[inline]
     pub fn range_x(&self) -> Range<T>
     where
         T: Copy,
@@ -260,6 +338,7 @@ impl<T: Scalar> Rect<T> {
         (self.offs.x)..(self.offs.y + self.size.y)
     }
 
+    #[inline]
     pub fn range_y(&self) -> Range<T>
     where
         T: Copy,
@@ -268,6 +347,7 @@ impl<T: Scalar> Rect<T> {
         (self.offs.y)..(self.offs.y + self.size.y)
     }
 
+    #[inline]
     pub fn translate(&self, offset: &Vector2<T>) -> Self
     where
         T: Copy,
@@ -277,6 +357,44 @@ impl<T: Scalar> Rect<T> {
         Self {
             offs: self.offs + offset,
             size: self.size,
+        }
+    }
+
+    #[inline]
+    pub fn scale(&self, scale: T) -> Self
+    where
+        T: Copy,
+        T: Mul<T, Output = T>,
+    {
+        Self {
+            offs: point![self.offs.x * scale, self.offs.y * scale],
+            size: vector![self.size.x * scale, self.size.y * scale],
+        }
+    }
+
+    #[inline]
+    pub fn cast<U>(&self) -> Rect<U>
+    where
+        T: Copy,
+        U: Scalar,
+        T: SubsetOf<U>,
+    {
+        Rect {
+            offs: na::convert(self.offs),
+            size: na::convert(self.size),
+        }
+    }
+
+    #[inline]
+    pub fn cast_unchecked<U>(&self) -> Rect<U>
+    where
+        T: Copy,
+        U: Scalar,
+        U: SubsetOf<T>,
+    {
+        Rect {
+            offs: na::convert_unchecked(self.offs),
+            size: na::convert_unchecked(self.size),
         }
     }
 }

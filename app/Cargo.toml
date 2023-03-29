@@ -13,6 +13,7 @@ log = "0.4.17"
 nalgebra = "0.32.2"
 num-traits = "0.2.15"
 pdfium = { path = "../pdfium" }
+simba = "0.8.0"
 
 [build-dependencies]
 glib-build-tools = "0.17.0"

@@ -287,28 +287,14 @@ impl TiledRenderer {
             let tile_rect = if t.id.z == iz {
                 t.id.rect(&self.tile_size).translate(&page_rect.offs.coords)
             } else {
-                // compute pixel coordinates in the original page
-                let tile_rect = t.id.rect(&self.tile_size).bounds();
-
-                // compute pixel coordinates in the current page
-                let scale = iz as f64 / t.id.z as f64;
-                let tile_rect = Bounds {
-                    x_min: tile_rect.x_min as f64 * scale,
-                    y_min: tile_rect.y_min as f64 * scale,
-                    x_max: tile_rect.x_max as f64 * scale,
-                    y_max: tile_rect.y_max as f64 * scale,
-                };
-
-                let tile_rect = tile_rect.translate(&na::convert(page_rect.offs.coords));
-
-                let tile_rect = Bounds {
-                    x_min: tile_rect.x_min.floor() as i64,
-                    y_min: tile_rect.y_min.floor() as i64,
-                    x_max: tile_rect.x_max.ceil() as i64,
-                    y_max: tile_rect.y_max.ceil() as i64,
-                };
-
-                tile_rect.into()
+                // compute pixel coordinates for current z-level and round to
+                // ensure proper visibility testing
+                t.id.rect_for_z(&self.tile_size, iz)
+                    .translate(&na::convert(page_rect.offs.coords))
+                    .bounds()
+                    .round_outwards()
+                    .cast_unchecked::<i64>()
+                    .into()
             };
 
             let vpz_rect = Rect::new(point![0, 0], na::convert_unchecked(vp.r.size));
@@ -322,24 +308,20 @@ impl TiledRenderer {
                 // by higher-z tiles, only if a tile is fully occluded by tiles
                 // on the current z-level
 
-                // compute pixel coordinates in the original page
-                let tile_rect = t.id.rect(&self.tile_size).bounds();
-
-                // compute pixel coordinates in the current page
-                let scale = iz as f64 / t.id.z as f64;
-                let tile_rect = Bounds {
-                    x_min: (tile_rect.x_min as f64 * scale).floor(),
-                    y_min: (tile_rect.y_min as f64 * scale).floor(),
-                    x_max: (tile_rect.x_max as f64 * scale).ceil(),
-                    y_max: (tile_rect.y_max as f64 * scale).ceil(),
-                };
+                // compute pixel coordinates for current z-level and round to
+                // ensure proper visibility testing
+                let tile_rect =
+                    t.id.rect_for_z(&self.tile_size, iz)
+                        .bounds()
+                        .round_outwards()
+                        .cast_unchecked::<i64>();
 
                 // compute tile IDs required to fully cover this
                 let req = Bounds {
-                    x_min: tile_rect.x_min as i64 / self.tile_size.x,
-                    y_min: tile_rect.y_min as i64 / self.tile_size.y,
-                    x_max: (tile_rect.x_max as i64 + self.tile_size.x - 1) / self.tile_size.x,
-                    y_max: (tile_rect.y_max as i64 + self.tile_size.y - 1) / self.tile_size.y,
+                    x_min: tile_rect.x_min / self.tile_size.x,
+                    y_min: tile_rect.y_min / self.tile_size.y,
+                    x_max: (tile_rect.x_max + self.tile_size.x - 1) / self.tile_size.x,
+                    y_max: (tile_rect.y_max + self.tile_size.y - 1) / self.tile_size.y,
                 };
 
                 return !req
@@ -402,25 +384,11 @@ impl TiledRenderer {
         snapshot.push_clip(&(*page_clipped).into());
 
         for tile in &rlist {
-            let tile_rect = if tile.id.z == iz {
-                tile.id.rect(&self.tile_size).translate(&page_rect.offs.coords).into()
-            } else {
-                // compute pixel coordinates in the original page
-                let tile_rect = tile.id.rect(&self.tile_size).bounds();
-
-                // compute pixel coordinates in the current page
-                let scale = iz as f64 / tile.id.z as f64;
-                let tile_rect = Bounds {
-                    x_min: tile_rect.x_min as f64 * scale,
-                    y_min: tile_rect.y_min as f64 * scale,
-                    x_max: tile_rect.x_max as f64 * scale,
-                    y_max: tile_rect.y_max as f64 * scale,
-                };
-
-                let tile_rect = tile_rect.translate(&na::convert(page_rect.offs.coords));
-
-                tile_rect.into()
-            };
+            let tile_rect = tile
+                .id
+                .rect_for_z(&self.tile_size, iz)
+                .translate(&na::convert(page_rect.offs.coords))
+                .into();
 
             snapshot.append_texture(&tile.data, &tile_rect);
         }

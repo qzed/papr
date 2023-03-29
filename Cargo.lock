@@ -1077,6 +1077,7 @@ dependencies = [
  "nalgebra",
  "num-traits",
  "pdfium",
+ "simba",
 ]
 
 [[package]]
