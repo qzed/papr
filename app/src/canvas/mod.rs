@@ -289,8 +289,7 @@ impl TiledRenderer {
                 Rect::new(page_rect.offs + tile_offs, self.tile_size)
             } else {
                 // compute pixel coordinates in the original page
-                let tile_offs = vector![t.id.x, t.id.y].component_mul(&self.tile_size);
-                let tile_rect = Rect::new(tile_offs.into(), self.tile_size).bounds();
+                let tile_rect = t.id.rect(&self.tile_size).bounds();
 
                 // compute pixel coordinates in the current page
                 let scale = iz as f64 / t.id.z as f64;
@@ -323,8 +322,7 @@ impl TiledRenderer {
                 // on the current z-level
 
                 // compute pixel coordinates in the original page
-                let tile_offs = vector![t.id.x, t.id.y].component_mul(&self.tile_size);
-                let tile_rect = Rect::new(tile_offs.into(), self.tile_size).bounds();
+                let tile_rect = t.id.rect(&self.tile_size).bounds();
 
                 // compute pixel coordinates in the current page
                 let scale = iz as f64 / t.id.z as f64;
@@ -360,11 +358,10 @@ impl TiledRenderer {
             }
 
             // stop loading tiles if not in view
-            let tile_offs = vector![id.x, id.y].component_mul(&self.tile_size);
-            let tile_screen_rect = Rect::new(page_rect.offs + tile_offs, self.tile_size);
+            let tile_rect = id.rect(&self.tile_size).translate(&page_rect.offs.coords);
             let vpz_rect = Rect::new(point![0, 0], na::convert_unchecked(vp.r.size));
 
-            if !tile_screen_rect.intersects(&vpz_rect) {
+            if !tile_rect.intersects(&vpz_rect) {
                 self.queue.cancel(id);
                 return false;
             }
@@ -405,14 +402,10 @@ impl TiledRenderer {
 
         for tile in &rlist {
             let tile_rect = if tile.id.z == iz {
-                let tile_offs = vector![tile.id.x, tile.id.y].component_mul(&self.tile_size);
-                let tile_rect = Rect::new(page_rect.offs + tile_offs, self.tile_size);
-
-                tile_rect.into()
+                tile.id.rect(&self.tile_size).translate(&page_rect.offs.coords).into()
             } else {
                 // compute pixel coordinates in the original page
-                let tile_offs = vector![tile.id.x, tile.id.y].component_mul(&self.tile_size);
-                let tile_rect = Rect::new(tile_offs.into(), self.tile_size).bounds();
+                let tile_rect = tile.id.rect(&self.tile_size).bounds();
 
                 // compute pixel coordinates in the current page
                 let scale = iz as f64 / tile.id.z as f64;

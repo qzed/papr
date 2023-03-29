@@ -1,4 +1,4 @@
-use std::ops::{Add, Range, Sub};
+use std::ops::{Add, Range, Sub, AddAssign};
 
 use gtk::graphene;
 use itertools::{Itertools, Product};
@@ -270,6 +270,18 @@ impl<T: Scalar> Rect<T> {
         T: Add<T, Output = T>,
     {
         (self.offs.y)..(self.offs.y + self.size.y)
+    }
+
+    pub fn translate(&self, offset: &Vector2<T>) -> Self
+    where
+        T: Copy,
+        T: Add<T, Output = T>,
+        T: AddAssign,
+    {
+        Self {
+            offs: self.offs + offset,
+            size: self.size,
+        }
     }
 }
 
