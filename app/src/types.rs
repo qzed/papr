@@ -135,6 +135,19 @@ impl<T> Bounds<T> {
             && self.y_min <= point.y
             && self.y_max > point.y
     }
+
+    pub fn translate(&self, offset: &Vector2<T>) -> Self
+    where
+        T: Scalar + Copy,
+        T: Add<T, Output = T>,
+    {
+        Self {
+            x_min: self.x_min + offset.x,
+            x_max: self.x_max + offset.x,
+            y_min: self.y_min + offset.y,
+            y_max: self.y_max + offset.y,
+        }
+    }
 }
 
 impl<T> From<Rect<T>> for Bounds<T>
@@ -162,23 +175,6 @@ impl From<Bounds<f64>> for graphene::Rect {
             (b.x_max - b.x_min) as _,
             (b.y_max - b.y_min) as _,
         )
-    }
-}
-
-impl<T> Add<Vector2<T>> for Bounds<T>
-where
-    T: Scalar + Copy,
-    T: Add<T, Output = T>,
-{
-    type Output = Bounds<T>;
-
-    fn add(self, offset: Vector2<T>) -> Self::Output {
-        Self {
-            x_min: self.x_min + offset.x,
-            y_min: self.y_min + offset.y,
-            x_max: self.x_max + offset.x,
-            y_max: self.y_max + offset.y,
-        }
     }
 }
 

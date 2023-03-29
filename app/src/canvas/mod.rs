@@ -285,8 +285,7 @@ impl TiledRenderer {
         cached.retain(|_, t| {
             // check if tile is in view
             let tile_rect = if t.id.z == iz {
-                let tile_offs = vector![t.id.x, t.id.y].component_mul(&self.tile_size);
-                Rect::new(page_rect.offs + tile_offs, self.tile_size)
+                t.id.rect(&self.tile_size).translate(&page_rect.offs.coords)
             } else {
                 // compute pixel coordinates in the original page
                 let tile_rect = t.id.rect(&self.tile_size).bounds();
@@ -294,11 +293,13 @@ impl TiledRenderer {
                 // compute pixel coordinates in the current page
                 let scale = iz as f64 / t.id.z as f64;
                 let tile_rect = Bounds {
-                    x_min: tile_rect.x_min as f64 * scale + page_rect.offs.x as f64,
-                    y_min: tile_rect.y_min as f64 * scale + page_rect.offs.y as f64,
-                    x_max: tile_rect.x_max as f64 * scale + page_rect.offs.x as f64,
-                    y_max: tile_rect.y_max as f64 * scale + page_rect.offs.y as f64,
+                    x_min: tile_rect.x_min as f64 * scale,
+                    y_min: tile_rect.y_min as f64 * scale,
+                    x_max: tile_rect.x_max as f64 * scale,
+                    y_max: tile_rect.y_max as f64 * scale,
                 };
+
+                let tile_rect = tile_rect.translate(&na::convert(page_rect.offs.coords));
 
                 let tile_rect = Bounds {
                     x_min: tile_rect.x_min.floor() as i64,
@@ -410,11 +411,13 @@ impl TiledRenderer {
                 // compute pixel coordinates in the current page
                 let scale = iz as f64 / tile.id.z as f64;
                 let tile_rect = Bounds {
-                    x_min: tile_rect.x_min as f64 * scale + page_rect.offs.x as f64,
-                    y_min: tile_rect.y_min as f64 * scale + page_rect.offs.y as f64,
-                    x_max: tile_rect.x_max as f64 * scale + page_rect.offs.x as f64,
-                    y_max: tile_rect.y_max as f64 * scale + page_rect.offs.y as f64,
+                    x_min: tile_rect.x_min as f64 * scale,
+                    y_min: tile_rect.y_min as f64 * scale,
+                    x_max: tile_rect.x_max as f64 * scale,
+                    y_max: tile_rect.y_max as f64 * scale,
                 };
+
+                let tile_rect = tile_rect.translate(&na::convert(page_rect.offs.coords));
 
                 tile_rect.into()
             };
