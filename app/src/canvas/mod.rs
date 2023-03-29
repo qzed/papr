@@ -278,7 +278,7 @@ impl TiledRenderer {
         let keys: HashSet<_> = cached.keys().cloned().collect();
 
         cached.retain(|_, t| {
-            // check if tile is in view
+            // compute tile bounds
             let tile_rect = if t.id.z == iz {
                 t.id.rect(&self.tile_size).translate(&page_rect.offs.coords)
             } else {
@@ -292,35 +292,37 @@ impl TiledRenderer {
                     .into()
             };
 
+            // check if tile is in view, drop it if it is not
             let vpz_rect = Rect::new(point![0, 0], na::convert_unchecked(vp.r.size));
             if !tile_rect.intersects(&vpz_rect) {
                 return false;
             }
 
-            // check if tile is replaced by ones with the current z-level
-            if t.id.z != iz {
-                // note: this does not check if e.g. a lower-z tile is occluded
-                // by higher-z tiles, only if a tile is fully occluded by tiles
-                // on the current z-level
-
-                // compute pixel coordinates for current z-level and round to
-                // ensure proper visibility testing
-                let tile_rect =
-                    t.id.rect_for_z(&self.tile_size, iz)
-                        .bounds()
-                        .round_outwards()
-                        .cast_unchecked::<i64>();
-
-                // compute tile IDs required to fully cover this and check if
-                // we have all of them
-                return !tile_rect
-                    .tiled(&self.tile_size)
-                    .clip(&tiles)
-                    .range_iter()
-                    .all(|(x, y)| keys.contains(&TileId::new(i_page, x, y, iz)));
+            // if the tile is on the current level: keep it
+            if t.id.z == iz {
+                return true;
             }
 
-            true
+            // otherwise: check if the tile is replaced by ones with the
+            // current z-level
+            //
+            // note: this does not check if e.g. a lower-z tile is occluded
+            // by higher-z tiles, only if a tile is fully occluded by tiles
+            // on the current z-level
+
+            // compute pixel coordinates for current z-level, round to
+            // ensure proper visibility testing, compute tile IDs required
+            // to fully cover this, and check if we have all of them
+            return !t
+                .id
+                .rect_for_z(&self.tile_size, iz)
+                .bounds()
+                .round_outwards()
+                .cast_unchecked::<i64>()
+                .tiled(&self.tile_size)
+                .clip(&tiles)
+                .range_iter()
+                .all(|(x, y)| keys.contains(&TileId::new(i_page, x, y, iz)));
         });
 
         pending.retain(|id| {
