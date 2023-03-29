@@ -253,12 +253,7 @@ impl TiledRenderer {
             .bounds();
 
         // tile bounds
-        let tiles = Bounds {
-            x_min: visible_page.x_min / self.tile_size.x,
-            y_min: visible_page.y_min / self.tile_size.y,
-            x_max: (visible_page.x_max + self.tile_size.x - 1) / self.tile_size.x,
-            y_max: (visible_page.y_max + self.tile_size.y - 1) / self.tile_size.y,
-        };
+        let tiles = visible_page.tiled(&self.tile_size);
 
         // mark page as visible
         self.visible.insert(i_page);
@@ -316,15 +311,10 @@ impl TiledRenderer {
                         .round_outwards()
                         .cast_unchecked::<i64>();
 
-                // compute tile IDs required to fully cover this
-                let req = Bounds {
-                    x_min: tile_rect.x_min / self.tile_size.x,
-                    y_min: tile_rect.y_min / self.tile_size.y,
-                    x_max: (tile_rect.x_max + self.tile_size.x - 1) / self.tile_size.x,
-                    y_max: (tile_rect.y_max + self.tile_size.y - 1) / self.tile_size.y,
-                };
-
-                return !req
+                // compute tile IDs required to fully cover this and check if
+                // we have all of them
+                return !tile_rect
+                    .tiled(&self.tile_size)
                     .clip(&tiles)
                     .range_iter()
                     .all(|(x, y)| keys.contains(&TileId::new(i_page, x, y, iz)));

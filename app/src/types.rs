@@ -220,6 +220,18 @@ impl<T> Bounds<T> {
     }
 }
 
+impl Bounds<i64> {
+    #[inline]
+    pub fn tiled(&self, tile_size: &Vector2<i64>) -> Self {
+        Self {
+            x_min: self.x_min / tile_size.x,
+            y_min: self.y_min / tile_size.y,
+            x_max: (self.x_max + tile_size.x - 1) / tile_size.x,
+            y_max: (self.y_max + tile_size.y - 1) / tile_size.y,
+        }
+    }
+}
+
 impl<T> From<Rect<T>> for Bounds<T>
 where
     T: Copy,
