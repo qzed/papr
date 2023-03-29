@@ -21,8 +21,6 @@ use crate::types::{Bounds, Rect, Viewport};
 mod layout;
 pub use layout::{HorizontalLayout, Layout, LayoutProvider, VerticalLayout};
 
-use crate::utils::bufpool::BufferPool;
-
 mod tile;
 use self::tile::TileId;
 
@@ -437,20 +435,17 @@ impl TiledRenderer {
 
 struct TileRenderer {
     tile_size: Vector2<i64>,
-    pool: BufferPool,
 }
 
 impl TileRenderer {
     fn new(tile_size: Vector2<i64>) -> Self {
-        let pool = BufferPool::new(Some(64), (tile_size.x * tile_size.y * 4) as _);
-
-        Self { tile_size, pool }
+        Self { tile_size }
     }
 
     fn render_tile(&self, page: &Page, page_rect: &Rect<i64>, id: &TileId) -> pdfium::Result<Tile> {
         // allocate tile bitmap buffer
         let stride = self.tile_size.x as usize * 4;
-        let mut buffer = self.pool.alloc();
+        let mut buffer = vec![0; stride * self.tile_size.y as usize];
 
         // render to tile
         {
