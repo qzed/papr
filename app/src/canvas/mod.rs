@@ -279,18 +279,9 @@ impl TiledRenderer {
 
         cached.retain(|_, t| {
             // compute tile bounds
-            let tile_rect = if t.id.z == iz {
-                t.id.rect(&self.tile_size).translate(&page_rect.offs.coords)
-            } else {
-                // compute pixel coordinates for current z-level and round to
-                // ensure proper visibility testing
-                t.id.rect_for_z(&self.tile_size, iz)
-                    .translate(&na::convert(page_rect.offs.coords))
-                    .bounds()
-                    .round_outwards()
-                    .cast_unchecked::<i64>()
-                    .into()
-            };
+            let tile_rect =
+                t.id.rect_for_z_rounded(&self.tile_size, iz)
+                    .translate(&page_rect.offs.coords);
 
             // check if tile is in view, drop it if it is not
             let vpz_rect = Rect::new(point![0, 0], na::convert_unchecked(vp.r.size));
@@ -315,10 +306,8 @@ impl TiledRenderer {
             // to fully cover this, and check if we have all of them
             return !t
                 .id
-                .rect_for_z(&self.tile_size, iz)
+                .rect_for_z_rounded(&self.tile_size, iz)
                 .bounds()
-                .round_outwards()
-                .cast_unchecked::<i64>()
                 .tiled(&self.tile_size)
                 .clip(&tiles)
                 .range_iter()
