@@ -156,11 +156,7 @@ impl Canvas {
             let page_rect = Rect::new(m_ptv * point![0.0, 0.0], m_ptv * page_rect.size);
 
             // round coordinates for pixel-perfect rendering
-            let page_rect = page_rect.round();
-            let page_rect = Rect {
-                offs: na::convert_unchecked(page_rect.offs),
-                size: na::convert_unchecked(page_rect.size),
-            };
+            let page_rect = page_rect.round().cast_unchecked();
 
             // clip page bounds to visible screen area (area on screen covered by page)
             let screen_rect = Rect::new(point![0, 0], na::convert_unchecked(vp.r.size));
