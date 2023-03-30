@@ -31,7 +31,7 @@ pub struct Canvas {
     pages: Vec<Page>,
     fallbacks: Vec<gdk::MemoryTexture>,
     layout: Layout,
-    render: TiledRenderer,
+    manager: TileManager,
 }
 
 impl Canvas {
@@ -57,7 +57,7 @@ impl Canvas {
         });
 
         let tile_size = vector![1024, 1024];
-        let render = TiledRenderer::new(tile_size, notif_sender);
+        let manager = TileManager::new(tile_size, notif_sender);
 
         // pre-render some fallback images
         let mut fallbacks = Vec::with_capacity(pages.len());
@@ -102,7 +102,7 @@ impl Canvas {
             pages,
             fallbacks,
             layout,
-            render,
+            manager,
         }
     }
 
@@ -133,7 +133,7 @@ impl Canvas {
         //   The relation between page coordinates and canvas coordinates is
         //   defined by the page offset in the canvas.
 
-        self.render.render_pre();
+        self.manager.render_pre();
 
         // transformation matrix: canvas to viewport
         let m_ctv = {
@@ -177,17 +177,28 @@ impl Canvas {
             // draw fallback
             snapshot.append_texture(&self.fallbacks[i], &page_rect.into());
 
-            // draw contents
-            self.render
-                .render_page(vp, i, page, &page_rect, &page_clipped, snapshot);
+            // draw tiles
+            let tile_size = self.manager.tile_size;
+
+            snapshot.push_clip(&page_clipped.into());
+
+            let rlist = self.manager.render_page(vp, i, page, &page_rect);
+            for tile in &rlist {
+                let tile_rect = tile.id.rect_for_z(&tile_size, page_rect.size.x);
+                let tile_rect = tile_rect.translate(&na::convert(page_rect.offs.coords));
+
+                snapshot.append_texture(&tile.data, &tile_rect.into());
+            }
+
+            snapshot.pop();
         }
 
         // free all invisible tiles
-        self.render.render_post();
+        self.manager.render_post();
     }
 }
 
-pub struct TiledRenderer {
+pub struct TileManager {
     tile_size: Vector2<i64>,
     cached: HashMap<usize, HashMap<TileId, Tile>>,
     pending: HashMap<usize, HashSet<TileId>>,
@@ -195,7 +206,7 @@ pub struct TiledRenderer {
     queue: RenderQueue,
 }
 
-impl TiledRenderer {
+impl TileManager {
     pub fn new(tile_size: Vector2<i64>, notif: glib::Sender<()>) -> Self {
         let (queue, mut thread) = RenderQueue::new(tile_size, notif);
         let cached = HashMap::new();
@@ -244,9 +255,7 @@ impl TiledRenderer {
         i_page: usize,
         page: &Page,
         page_rect: &Rect<i64>,
-        page_clipped: &Rect<i64>,
-        snapshot: &Snapshot,
-    ) {
+    ) -> Vec<&Tile> {
         // viewport bounds relative to the page in pixels (area of page visible on screen)
         let visible_page = Rect::new(-page_rect.offs, na::convert_unchecked(vp.r.size))
             .clip(&Rect::new(point![0, 0], page_rect.size))
@@ -259,8 +268,7 @@ impl TiledRenderer {
         self.visible.insert(i_page);
 
         // get cached tiles for page
-        let mut fallback = HashMap::new();
-        let cached = self.cached.get_mut(&i_page).unwrap_or(&mut fallback);
+        let cached = self.cached.entry(i_page).or_insert_with(HashMap::new);
         let pending = self.pending.entry(i_page).or_insert_with(HashSet::new);
         let iz = page_rect.size.x;
 
@@ -358,17 +366,7 @@ impl TiledRenderer {
             }
         });
 
-        // render tiles
-        snapshot.push_clip(&(*page_clipped).into());
-
-        for tile in &rlist {
-            let tile_rect = tile.id.rect_for_z(&self.tile_size, iz);
-            let tile_rect = tile_rect.translate(&na::convert(page_rect.offs.coords));
-
-            snapshot.append_texture(&tile.data, &tile_rect.into());
-        }
-
-        snapshot.pop();
+        rlist
     }
 }
 
