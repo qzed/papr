@@ -275,17 +275,16 @@ impl TiledRenderer {
         }
 
         // find unused/occluded tiles and remove them
-        let keys: HashSet<_> = cached.keys().cloned().collect();
+        let cached_keys: HashSet<_> = cached.keys().cloned().collect();
 
         cached.retain(|_, t| {
             // compute tile bounds
-            let tile_rect =
-                t.id.rect_for_z_rounded(&self.tile_size, iz)
-                    .translate(&page_rect.offs.coords);
+            let tile_rect = t.id.rect_for_z_rounded(&self.tile_size, iz);
+            let tile_rect_screen = tile_rect.translate(&page_rect.offs.coords);
 
             // check if tile is in view, drop it if it is not
             let vpz_rect = Rect::new(point![0, 0], na::convert_unchecked(vp.r.size));
-            if !tile_rect.intersects(&vpz_rect) {
+            if !tile_rect_screen.intersects(&vpz_rect) {
                 return false;
             }
 
@@ -301,17 +300,15 @@ impl TiledRenderer {
             // by higher-z tiles, only if a tile is fully occluded by tiles
             // on the current z-level
 
-            // compute pixel coordinates for current z-level, round to
-            // ensure proper visibility testing, compute tile IDs required
-            // to fully cover this, and check if we have all of them
-            return !t
-                .id
-                .rect_for_z_rounded(&self.tile_size, iz)
-                .bounds()
-                .tiled(&self.tile_size)
-                .clip(&tiles)
+            // compute tile IDs on current z-level required to fully cover the
+            // original one
+            let tiles_req = tile_rect.bounds().tiled(&self.tile_size);
+            let tiles_req = tiles_req.clip(&tiles);
+
+            // check if all required tiles are present
+            return !tiles_req
                 .range_iter()
-                .all(|(x, y)| keys.contains(&TileId::new(i_page, x, y, iz)));
+                .all(|(x, y)| cached_keys.contains(&TileId::new(i_page, x, y, iz)));
         });
 
         pending.retain(|id| {
@@ -365,13 +362,10 @@ impl TiledRenderer {
         snapshot.push_clip(&(*page_clipped).into());
 
         for tile in &rlist {
-            let tile_rect = tile
-                .id
-                .rect_for_z(&self.tile_size, iz)
-                .translate(&na::convert(page_rect.offs.coords))
-                .into();
+            let tile_rect = tile.id.rect_for_z(&self.tile_size, iz);
+            let tile_rect = tile_rect.translate(&na::convert(page_rect.offs.coords));
 
-            snapshot.append_texture(&tile.data, &tile_rect);
+            snapshot.append_texture(&tile.data, &tile_rect.into());
         }
 
         snapshot.pop();
