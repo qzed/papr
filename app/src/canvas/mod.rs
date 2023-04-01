@@ -156,14 +156,16 @@ impl Canvas {
             let page_rect = Rect::new(m_ptv * point![0.0, 0.0], m_ptv * page_rect.size);
 
             // round coordinates for pixel-perfect rendering
-            let page_rect = page_rect.round().cast_unchecked();
+            let page_rect = page_rect.round();
+
+            // TODO: recompute scale and transformation for rounded page
 
             // clip page bounds to visible screen area (area on screen covered by page)
-            let screen_rect = Rect::new(point![0, 0], na::convert_unchecked(vp.r.size));
+            let screen_rect = Rect::new(point![0.0, 0.0], vp.r.size);
             let page_clipped = page_rect.clip(&screen_rect);
 
             // check if page is in view, skip rendering if not
-            if page_clipped.size.x < 1 || page_clipped.size.y < 1 {
+            if page_clipped.size.x <= 0.0 || page_clipped.size.y <= 0.0 {
                 continue;
             }
 
@@ -180,8 +182,8 @@ impl Canvas {
 
             let rlist = self.manager.render_page(vp, i, page, &page_rect);
             for tile in &rlist {
-                let tile_rect = tile.id.rect_for_z(&tile_size, page_rect.size.x);
-                let tile_rect = tile_rect.translate(&na::convert(page_rect.offs.coords));
+                let tile_rect = tile.id.rect_for_z(&tile_size, page_rect.size.x as i64);
+                let tile_rect = tile_rect.translate(&page_rect.offs.coords);
 
                 snapshot.append_texture(&tile.data, &tile_rect.into());
             }
@@ -250,12 +252,13 @@ impl TileManager {
         vp: &Viewport,
         i_page: usize,
         page: &Page,
-        page_rect: &Rect<i64>,
+        page_rect: &Rect<f64>,
     ) -> Vec<&Tile> {
         // viewport bounds relative to the page in pixels (area of page visible on screen)
-        let visible_page = Rect::new(-page_rect.offs, na::convert_unchecked(vp.r.size))
-            .clip(&Rect::new(point![0, 0], page_rect.size))
-            .bounds();
+        let visible_page = Rect::new(-page_rect.offs, vp.r.size)
+            .clip(&Rect::new(point![0.0, 0.0], page_rect.size))
+            .bounds()
+            .cast_unchecked();
 
         // tile bounds
         let tiles = visible_page.tiled(&self.tile_size);
@@ -266,7 +269,7 @@ impl TileManager {
         // get cached tiles for page
         let cached = self.cached.entry(i_page).or_insert_with(HashMap::new);
         let pending = self.pending.entry(i_page).or_insert_with(HashSet::new);
-        let iz = page_rect.size.x;
+        let iz = page_rect.size.x as i64;
 
         // request new tiles if not cached or pending
         for (ix, iy) in tiles.range_iter() {
@@ -274,7 +277,7 @@ impl TileManager {
 
             if !cached.contains_key(&tile_id) && !pending.contains(&tile_id) {
                 pending.insert(tile_id);
-                self.queue.submit(page.clone(), *page_rect, tile_id);
+                self.queue.submit(page.clone(), page_rect.cast_unchecked(), tile_id);
             }
         }
 
@@ -285,7 +288,7 @@ impl TileManager {
             // compute tile bounds
             let tile_rect = t.id.rect_for_z(&self.tile_size, iz);
             let tile_rect = tile_rect.bounds().round_outwards();
-            let tile_rect_screen = tile_rect.translate(&na::convert(page_rect.offs.coords));
+            let tile_rect_screen = tile_rect.translate(&page_rect.offs.coords);
 
             // check if tile is in view, drop it if it is not
             let vpz_rect = Rect::new(point![0.0, 0.0], vp.r.size).bounds();
@@ -324,8 +327,9 @@ impl TileManager {
             }
 
             // stop loading tiles if not in view
-            let tile_rect = id.rect(&self.tile_size).translate(&page_rect.offs.coords);
-            let vpz_rect = Rect::new(point![0, 0], na::convert_unchecked(vp.r.size));
+            let tile_rect = id.rect(&self.tile_size);
+            let tile_rect = tile_rect.translate(&page_rect.offs.coords);
+            let vpz_rect = Rect::new(point![0.0, 0.0], vp.r.size);
 
             if !tile_rect.intersects(&vpz_rect) {
                 self.queue.cancel(id);

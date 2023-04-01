@@ -1,3 +1,4 @@
+use nalgebra as na;
 use nalgebra::{vector, Vector2};
 
 use crate::types::Rect;
@@ -18,20 +19,18 @@ impl TileId {
 
     /// Area covered by this tile in pixels, aligned at the page origin.
     #[inline]
-    pub fn rect(&self, tile_size: &Vector2<i64>) -> Rect<i64> {
-        Rect::new(
-            vector![self.x, self.y].component_mul(tile_size).into(),
-            *tile_size,
-        )
+    pub fn rect(&self, tile_size: &Vector2<i64>) -> Rect<f64> {
+        let tile_size: Vector2<f64> = na::convert(*tile_size);
+        let xy: Vector2<f64> = na::convert(vector![self.x, self.y]);
+
+        Rect::new(xy.component_mul(&tile_size).into(), tile_size)
     }
 
     /// Area covered by this tile in pixels for different z-level, aligned at
     /// the page origin.
     #[inline]
     pub fn rect_for_z(&self, tile_size: &Vector2<i64>, z: i64) -> Rect<f64> {
-        self.rect(tile_size)
-            .cast::<f64>()
-            .scale(z as f64 / self.z as f64)
+        self.rect(tile_size).scale(z as f64 / self.z as f64)
     }
 }
 
