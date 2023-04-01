@@ -283,11 +283,12 @@ impl TileManager {
 
         cached.retain(|_, t| {
             // compute tile bounds
-            let tile_rect = t.id.rect_for_z_rounded(&self.tile_size, iz);
-            let tile_rect_screen = tile_rect.translate(&page_rect.offs.coords);
+            let tile_rect = t.id.rect_for_z(&self.tile_size, iz);
+            let tile_rect = tile_rect.bounds().round_outwards();
+            let tile_rect_screen = tile_rect.translate(&na::convert(page_rect.offs.coords));
 
             // check if tile is in view, drop it if it is not
-            let vpz_rect = Rect::new(point![0, 0], na::convert_unchecked(vp.r.size));
+            let vpz_rect = Rect::new(point![0.0, 0.0], vp.r.size).bounds();
             if !tile_rect_screen.intersects(&vpz_rect) {
                 return false;
             }
@@ -306,7 +307,7 @@ impl TileManager {
 
             // compute tile IDs on current z-level required to fully cover the
             // original one
-            let tiles_req = tile_rect.bounds().tiled(&self.tile_size);
+            let tiles_req = tile_rect.cast_unchecked::<i64>().tiled(&self.tile_size);
             let tiles_req = tiles_req.clip(&tiles);
 
             // check if all required tiles are present

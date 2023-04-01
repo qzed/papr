@@ -33,17 +33,6 @@ impl TileId {
             .cast::<f64>()
             .scale(z as f64 / self.z as f64)
     }
-
-    /// Area covered by this tile in pixels for different z-level, aligned at
-    /// the page origin and rounded outwards to full pixels.
-    #[inline]
-    pub fn rect_for_z_rounded(&self, tile_size: &Vector2<i64>, z: i64) -> Rect<i64> {
-        self.rect_for_z(tile_size, z)
-            .bounds()
-            .round_outwards()
-            .cast_unchecked::<i64>()
-            .rect()
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
