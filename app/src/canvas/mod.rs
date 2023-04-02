@@ -22,7 +22,7 @@ mod layout;
 pub use layout::{HorizontalLayout, Layout, LayoutProvider, VerticalLayout};
 
 mod tile;
-use self::tile::TileId;
+use self::tile::{ExactLevelTilingScheme, TileId, TilingScheme};
 
 type Tile = self::tile::Tile<gdk::MemoryTexture>;
 
@@ -31,7 +31,7 @@ pub struct Canvas {
     pages: Vec<Page>,
     fallbacks: Vec<gdk::MemoryTexture>,
     layout: Layout,
-    manager: TileManager,
+    manager: TileManager<ExactLevelTilingScheme>,
 }
 
 impl Canvas {
@@ -57,7 +57,8 @@ impl Canvas {
         });
 
         let tile_size = vector![1024, 1024];
-        let manager = TileManager::new(tile_size, notif_sender);
+        let scheme = ExactLevelTilingScheme::new(tile_size);
+        let manager = TileManager::new(scheme, notif_sender);
 
         // pre-render some fallback images
         let mut fallbacks = Vec::with_capacity(pages.len());
@@ -145,15 +146,15 @@ impl Canvas {
         // page rendering
         let iter = self.pages.iter_mut().zip(&self.layout.rects);
 
-        for (i, (page, page_rect)) in iter.enumerate() {
+        for (i, (page, page_rect_pt)) in iter.enumerate() {
             // transformation matrix: page to canvas
-            let m_ptc = Translation2::from(page_rect.offs);
+            let m_ptc = Translation2::from(page_rect_pt.offs);
 
             // transformation matrix: page to viewport/screen
             let m_ptv = m_ctv * m_ptc;
 
             // convert page bounds to screen coordinates
-            let page_rect = Rect::new(m_ptv * point![0.0, 0.0], m_ptv * page_rect.size);
+            let page_rect = Rect::new(m_ptv * point![0.0, 0.0], m_ptv * page_rect_pt.size);
 
             // round coordinates for pixel-perfect rendering
             let page_rect = page_rect.round();
@@ -176,18 +177,14 @@ impl Canvas {
             snapshot.append_texture(&self.fallbacks[i], &page_rect.into());
 
             // draw tiles
-            let tile_size = self.manager.tile_size;
+            let rlist = self
+                .manager
+                .render_page(vp, i, page, &page_rect_pt, &page_rect);
 
             snapshot.push_clip(&page_clipped.into());
-
-            let rlist = self.manager.render_page(vp, i, page, &page_rect);
-            for tile in &rlist {
-                let tile_rect = tile.id.rect_for_z(&tile_size, page_rect.size.x as i64);
-                let tile_rect = tile_rect.translate(&page_rect.offs.coords);
-
-                snapshot.append_texture(&tile.data, &tile_rect.into());
+            for (tile_rect, tile) in &rlist {
+                snapshot.append_texture(&tile.data, &(*tile_rect).into());
             }
-
             snapshot.pop();
         }
 
@@ -196,17 +193,17 @@ impl Canvas {
     }
 }
 
-pub struct TileManager {
-    tile_size: Vector2<i64>,
+pub struct TileManager<S> {
+    scheme: S,
     cached: HashMap<usize, HashMap<TileId, Tile>>,
     pending: HashMap<usize, HashSet<TileId>>,
     visible: HashSet<usize>,
     queue: RenderQueue,
 }
 
-impl TileManager {
-    pub fn new(tile_size: Vector2<i64>, notif: glib::Sender<()>) -> Self {
-        let (queue, mut thread) = RenderQueue::new(tile_size, notif);
+impl<S: TilingScheme> TileManager<S> {
+    pub fn new(scheme: S, notif: glib::Sender<()>) -> Self {
+        let (queue, mut thread) = RenderQueue::new(notif);
         let cached = HashMap::new();
         let pending = HashMap::new();
         let visible = HashSet::new();
@@ -215,7 +212,7 @@ impl TileManager {
         std::thread::spawn(move || thread.run());
 
         Self {
-            tile_size,
+            scheme,
             cached,
             pending,
             visible,
@@ -252,16 +249,16 @@ impl TileManager {
         vp: &Viewport,
         i_page: usize,
         page: &Page,
+        page_rect_pt: &Rect<f64>,
         page_rect: &Rect<f64>,
-    ) -> Vec<&Tile> {
+    ) -> Vec<(Rect<f64>, &Tile)> {
         // viewport bounds relative to the page in pixels (area of page visible on screen)
         let visible_page = Rect::new(-page_rect.offs, vp.r.size)
             .clip(&Rect::new(point![0.0, 0.0], page_rect.size))
-            .bounds()
-            .cast_unchecked();
+            .bounds();
 
         // tile bounds
-        let tiles = visible_page.tiled(&self.tile_size);
+        let tiles = self.scheme.tiles(vp, page_rect, &visible_page);
 
         // mark page as visible
         self.visible.insert(i_page);
@@ -269,15 +266,20 @@ impl TileManager {
         // get cached tiles for page
         let cached = self.cached.entry(i_page).or_insert_with(HashMap::new);
         let pending = self.pending.entry(i_page).or_insert_with(HashSet::new);
-        let iz = page_rect.size.x as i64;
 
         // request new tiles if not cached or pending
-        for (ix, iy) in tiles.range_iter() {
-            let tile_id = TileId::new(i_page, ix, iy, iz);
+        for (ix, iy) in tiles.rect.range_iter() {
+            let tile_id = TileId::new(i_page, ix, iy, tiles.z);
 
             if !cached.contains_key(&tile_id) && !pending.contains(&tile_id) {
                 pending.insert(tile_id);
-                self.queue.submit(page.clone(), page_rect.cast_unchecked(), tile_id);
+
+                let (page_size, tile_rect) =
+                    self.scheme
+                        .render_rect(&page_rect_pt.size, &page_rect.size, &tile_id);
+
+                self.queue
+                    .submit(page.clone(), page_size, tile_rect, tile_id);
             }
         }
 
@@ -286,7 +288,7 @@ impl TileManager {
 
         cached.retain(|_, t| {
             // compute tile bounds
-            let tile_rect = t.id.rect_for_z(&self.tile_size, iz);
+            let tile_rect = self.scheme.screen_rect(vp, page_rect, &t.id);
             let tile_rect = tile_rect.bounds().round_outwards();
             let tile_rect_screen = tile_rect.translate(&page_rect.offs.coords);
 
@@ -297,7 +299,7 @@ impl TileManager {
             }
 
             // if the tile is on the current level: keep it
-            if t.id.z == iz {
+            if t.id.z == tiles.z {
                 return true;
             }
 
@@ -310,24 +312,24 @@ impl TileManager {
 
             // compute tile IDs on current z-level required to fully cover the
             // original one
-            let tiles_req = tile_rect.cast_unchecked::<i64>().tiled(&self.tile_size);
-            let tiles_req = tiles_req.clip(&tiles);
+            let tiles_req = self.scheme.tiles(vp, page_rect, &tile_rect);
+            let tiles_req = tiles_req.rect.clip(&tiles.rect);
 
             // check if all required tiles are present
             return !tiles_req
                 .range_iter()
-                .all(|(x, y)| cached_keys.contains(&TileId::new(i_page, x, y, iz)));
+                .all(|(x, y)| cached_keys.contains(&TileId::new(i_page, x, y, tiles.z)));
         });
 
         pending.retain(|id| {
             // stop loading anything that is not on the current zoom level
-            if id.z != iz {
+            if id.z != tiles.z {
                 self.queue.cancel(id);
                 return false;
             }
 
             // stop loading tiles if not in view
-            let tile_rect = id.rect(&self.tile_size);
+            let tile_rect = self.scheme.screen_rect(vp, page_rect, id);
             let tile_rect = tile_rect.translate(&page_rect.offs.coords);
             let vpz_rect = Rect::new(point![0.0, 0.0], vp.r.size);
 
@@ -351,10 +353,10 @@ impl TileManager {
             if a.id.z == b.id.z {
                 // same z-levels are always equal
                 Ordering::Equal
-            } else if a.id.z == iz {
+            } else if a.id.z == tiles.z {
                 // put current z-level last
                 Ordering::Greater
-            } else if b.id.z == iz {
+            } else if b.id.z == tiles.z {
                 // put current z-level last
                 Ordering::Less
             } else {
@@ -368,32 +370,42 @@ impl TileManager {
         });
 
         rlist
+            .into_iter()
+            .map(|tile| {
+                let tile_rect = self.scheme.screen_rect(vp, &page_rect, &tile.id);
+                let tile_rect = tile_rect.translate(&page_rect.offs.coords);
+
+                (tile_rect, tile)
+            })
+            .collect()
     }
 }
 
-struct TileRenderer {
-    tile_size: Vector2<i64>,
-}
+struct TileRenderer;
 
 impl TileRenderer {
-    fn new(tile_size: Vector2<i64>) -> Self {
-        Self { tile_size }
+    fn new() -> Self {
+        Self
     }
 
-    fn render_tile(&self, page: &Page, page_rect: &Rect<i64>, id: &TileId) -> pdfium::Result<Tile> {
+    fn render_tile(
+        &self,
+        page: &Page,
+        page_size: &Vector2<i64>,
+        tile_rect: &Rect<i64>,
+        id: &TileId,
+    ) -> pdfium::Result<Tile> {
         // allocate tile bitmap buffer
-        let stride = self.tile_size.x as usize * 4;
-        let mut buffer = vec![0; stride * self.tile_size.y as usize];
+        let stride = tile_rect.size.x as usize * 4;
+        let mut buffer = vec![0; stride * tile_rect.size.y as usize];
 
         // render to tile
         {
-            let tile_offs = vector![id.x, id.y].component_mul(&self.tile_size);
-
             // wrap buffer in bitmap
             let mut bmp = Bitmap::from_buf(
                 page.library().clone(),
-                self.tile_size.x as _,
-                self.tile_size.y as _,
+                tile_rect.size.x as _,
+                tile_rect.size.y as _,
                 BitmapFormat::Bgra,
                 &mut buffer[..],
                 stride as _,
@@ -401,15 +413,15 @@ impl TileRenderer {
             bmp.fill_rect(
                 0,
                 0,
-                self.tile_size.x as _,
-                self.tile_size.y as _,
+                tile_rect.size.x as _,
+                tile_rect.size.y as _,
                 pdfium::bitmap::Color::WHITE,
             );
 
             // set up render layout
             let layout = PageRenderLayout {
-                start: na::convert::<_, Vector2<i32>>(-tile_offs).into(),
-                size: na::convert(page_rect.size),
+                start: na::convert::<_, Vector2<i32>>(-tile_rect.offs.coords).into(),
+                size: na::convert(*page_size),
                 rotate: PageRotation::None,
             };
 
@@ -421,8 +433,8 @@ impl TileRenderer {
         // create GTK/GDK texture
         let bytes = glib::Bytes::from_owned(buffer);
         let texture = gdk::MemoryTexture::new(
-            self.tile_size.x as _,
-            self.tile_size.y as _,
+            tile_rect.size.x as _,
+            tile_rect.size.y as _,
             gdk::MemoryFormat::B8g8r8a8,
             &bytes,
             stride as _,
@@ -452,16 +464,17 @@ pub struct RenderThread {
 
 struct RenderTask {
     page: Page,
-    page_rect: Rect<i64>,
+    page_size: Vector2<i64>,
+    tile_rect: Rect<i64>,
     tile_id: TileId,
     canceled: Arc<AtomicBool>,
 }
 
 impl RenderQueue {
-    pub fn new(tile_size: Vector2<i64>, notif: glib::Sender<()>) -> (RenderQueue, RenderThread) {
+    pub fn new(notif: glib::Sender<()>) -> (RenderQueue, RenderThread) {
         let (task_sender, task_receiver) = mpsc::channel();
         let (tile_sender, tile_receiver) = mpsc::channel();
-        let renderer = TileRenderer::new(tile_size);
+        let renderer = TileRenderer::new();
 
         let queue = RenderQueue {
             sender: task_sender,
@@ -483,7 +496,13 @@ impl RenderQueue {
         self.pending.contains_key(tile_id)
     }
 
-    pub fn submit(&mut self, page: Page, page_rect: Rect<i64>, tile_id: TileId) {
+    pub fn submit(
+        &mut self,
+        page: Page,
+        page_size: Vector2<i64>,
+        tile_rect: Rect<i64>,
+        tile_id: TileId,
+    ) {
         if self.is_pending(&tile_id) {
             return;
         }
@@ -492,7 +511,8 @@ impl RenderQueue {
 
         let task = RenderTask {
             page,
-            page_rect,
+            page_size,
+            tile_rect,
             tile_id,
             canceled: canceled.clone(),
         };
@@ -536,7 +556,7 @@ impl RenderThread {
 
             let tile = self
                 .renderer
-                .render_tile(&task.page, &task.page_rect, &task.tile_id)
+                .render_tile(&task.page, &task.page_size, &task.tile_rect, &task.tile_id)
                 .unwrap();
 
             self.sender.send(tile).unwrap();
