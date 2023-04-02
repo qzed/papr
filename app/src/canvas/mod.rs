@@ -159,8 +159,6 @@ impl Canvas {
             // round coordinates for pixel-perfect rendering
             let page_rect = page_rect.round();
 
-            // TODO: recompute scale and transformation for rounded page
-
             // clip page bounds to visible screen area (area on screen covered by page)
             let screen_rect = Rect::new(point![0.0, 0.0], vp.r.size);
             let page_clipped = page_rect.clip(&screen_rect);
@@ -169,6 +167,10 @@ impl Canvas {
             if page_clipped.size.x <= 0.0 || page_clipped.size.y <= 0.0 {
                 continue;
             }
+
+            // recompute scale for rounded page
+            let scale = page_rect.size.x / page_rect_pt.size.x;
+            let vp_adj = Viewport { r: vp.r, scale };
 
             // draw background
             snapshot.append_color(&gdk::RGBA::new(1.0, 1.0, 1.0, 1.0), &page_clipped.into());
@@ -179,7 +181,7 @@ impl Canvas {
             // draw tiles
             let rlist = self
                 .manager
-                .render_page(vp, i, page, &page_rect_pt, &page_rect);
+                .render_page(&vp_adj, i, page, &page_rect_pt, &page_rect);
 
             snapshot.push_clip(&page_clipped.into());
             for (tile_rect, tile) in &rlist {
