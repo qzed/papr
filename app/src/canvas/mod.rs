@@ -67,8 +67,8 @@ impl Canvas {
             let size = page.size();
 
             let width: u32 = 512;
-            let scale = width as f32 / size.x as f32;
-            let height = (scale * size.y as f32).round() as u32;
+            let scale = width as f32 / size.x;
+            let height = (scale * size.y).round() as u32;
 
             let format = BitmapFormat::Bgra;
             let mut bmp = Bitmap::uninitialized(lib, width, height, format).unwrap();
@@ -181,7 +181,7 @@ impl Canvas {
             // draw tiles
             let rlist = self
                 .manager
-                .render_page(&vp_adj, i, page, &page_rect_pt, &page_rect);
+                .render_page(&vp_adj, i, page, page_rect_pt, &page_rect);
 
             snapshot.push_clip(&page_clipped.into());
             for (tile_rect, tile) in &rlist {
@@ -318,9 +318,9 @@ impl<S: TilingScheme> TileManager<S> {
             let tiles_req = tiles_req.rect.clip(&tiles.rect);
 
             // check if all required tiles are present
-            return !tiles_req
+            !tiles_req
                 .range_iter()
-                .all(|(x, y)| cached_keys.contains(&TileId::new(i_page, x, y, tiles.z)));
+                .all(|(x, y)| cached_keys.contains(&TileId::new(i_page, x, y, tiles.z)))
         });
 
         pending.retain(|id| {
@@ -374,7 +374,7 @@ impl<S: TilingScheme> TileManager<S> {
         rlist
             .into_iter()
             .map(|tile| {
-                let tile_rect = self.scheme.screen_rect(vp, &page_rect, &tile.id);
+                let tile_rect = self.scheme.screen_rect(vp, page_rect, &tile.id);
                 let tile_rect = tile_rect.translate(&page_rect.offs.coords);
 
                 (tile_rect, tile)
