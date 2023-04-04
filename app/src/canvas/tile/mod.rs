@@ -1,5 +1,5 @@
 mod scheme;
-pub use scheme::{ExactLevelTilingScheme, TilingScheme};
+pub use scheme::{ExactLevelTilingScheme, QuadTreeTilingScheme, TilingScheme};
 
 use crate::types::Bounds;
 
