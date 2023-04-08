@@ -242,6 +242,8 @@ impl Page {
     /// [`Self::display_transform()`] via
     /// ```no_run
     /// # use nalgebra::point;
+    /// # use pdfium::doc::{Page, PageRotation};
+    /// # let page: Page = unimplemented!();
     /// let display_transform = page.display_transform(
     ///         point![0.0, 0.0], page.size(), PageRotation::None);
     /// ```
