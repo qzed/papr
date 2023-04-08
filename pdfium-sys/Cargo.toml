@@ -4,6 +4,9 @@ version = "0.1.0"       # chromium/5541
 authors = ["Maximilian Luz <m@mxnluz.io>"]
 edition = "2018"
 
+[lib]
+doctest = false
+
 [features]
 default = ["dylib-require-all"]
 dylib-require-all = []
