@@ -25,6 +25,18 @@ macro_rules! offset_of {
     }}
 }
 
+#[macro_export]
+macro_rules! container_of {
+    ($ptr:expr, $type:ty, $($f:tt)*) => {{
+        // Compute offset from outer struct to the member pointer.
+        let offset = $crate::offset_of!($type, $($f)*);
+
+        // Subtract that offset.
+        let ptr = $ptr as *const _ as *const u8;
+        ptr.wrapping_offset(-offset) as *const $type
+    }}
+}
+
 #[cfg(test)]
 mod test {
     #[test]
@@ -95,6 +107,37 @@ mod test {
             assert_eq!(*ptr_a, test.a);
             assert_eq!(*ptr_b, test.b);
             assert_eq!(*ptr_c, test.c);
+        }
+    }
+
+    #[test]
+    fn container_of() {
+        struct Test {
+            a: u8,
+            b: u16,
+            c: u32,
+        }
+
+        let test = Test {
+            a: 0xa5,
+            b: 0xf739,
+            c: 0x6b28dce1,
+        };
+
+        unsafe {
+            let p = &test as *const Test;
+
+            let ptr_a = std::ptr::addr_of!((*p).a);
+            let ptr_b = std::ptr::addr_of!((*p).b);
+            let ptr_c = std::ptr::addr_of!((*p).c);
+
+            assert_eq!(*ptr_a, test.a);
+            assert_eq!(*ptr_b, test.b);
+            assert_eq!(*ptr_c, test.c);
+
+            assert!(std::ptr::eq(p, container_of!(ptr_a, Test, a)));
+            assert!(std::ptr::eq(p, container_of!(ptr_b, Test, b)));
+            assert!(std::ptr::eq(p, container_of!(ptr_c, Test, c)));
         }
     }
 }
