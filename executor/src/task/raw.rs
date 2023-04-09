@@ -157,6 +157,12 @@ mod test {
         assert!(task.is_complete());
         assert!(!task.is_canceled());
         assert!(task.is_consumed());
+
+        // get the result of the task, again
+        assert_eq!(task.result(), None::<i32>);
+        assert!(task.is_complete());
+        assert!(!task.is_canceled());
+        assert!(task.is_consumed());
     }
 
     #[test]
