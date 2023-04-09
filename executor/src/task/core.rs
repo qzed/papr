@@ -55,6 +55,8 @@ pub enum Data<F, R> {
 impl<F, R> Cell<F, R>
 where
     F: FnOnce() -> R,
+    F: Send,
+    R: Send,
 {
     pub fn new(closure: F) -> Box<Cell<F, R>> {
         Box::new(Cell {

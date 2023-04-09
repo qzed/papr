@@ -12,6 +12,8 @@ impl RawTask {
     pub fn new<F, R>(closure: F) -> Self
     where
         F: FnOnce() -> R,
+        F: Send,
+        R: Send,
     {
         let cell = Cell::new(closure);
 
@@ -46,7 +48,7 @@ impl RawTask {
         unsafe { (self.vtable().execute)(self.ptr) }
     }
 
-    pub fn result<R>(&self) -> Option<R> {
+    pub fn result<R: Send>(&self) -> Option<R> {
         let mut out = None;
 
         let out_ptr = &mut out as *mut _ as *mut ();
