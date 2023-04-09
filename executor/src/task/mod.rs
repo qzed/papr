@@ -1,6 +1,6 @@
-pub mod completion;
-pub mod core;
-pub mod harness;
-pub mod raw;
-pub mod state;
-pub mod vtable;
+mod completion;
+mod core;
+mod harness;
+mod raw;
+mod state;
+mod vtable;

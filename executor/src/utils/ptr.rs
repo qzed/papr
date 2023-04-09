@@ -1,4 +1,3 @@
-#[macro_export]
 macro_rules! offset_of {
     ($type:path, $($member:tt)*) => {{
         // Get a temporary object for our pointer calculations
@@ -24,21 +23,24 @@ macro_rules! offset_of {
         unsafe { (ptr_member as *const u8).offset_from(ptr_struct as *const u8) }
     }}
 }
+pub(crate) use offset_of;
 
-#[macro_export]
 macro_rules! container_of {
     ($ptr:expr, $type:ty, $($f:tt)*) => {{
         // Compute offset from outer struct to the member pointer.
-        let offset = $crate::offset_of!($type, $($f)*);
+        let offset = $crate::utils::ptr::offset_of!($type, $($f)*);
 
         // Subtract that offset.
         let ptr = $ptr as *const _ as *const u8;
         ptr.wrapping_offset(-offset) as *const $type
     }}
 }
+pub(crate) use container_of;
 
 #[cfg(test)]
 mod test {
+    use super::*;
+
     #[test]
     fn offset_of_c() {
         use std::mem::size_of;

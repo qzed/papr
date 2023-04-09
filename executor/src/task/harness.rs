@@ -1,7 +1,7 @@
 use std::panic::AssertUnwindSafe;
 use std::ptr::NonNull;
 
-use crate::container_of;
+use crate::utils::ptr::container_of;
 
 use super::core::{Cell, Core, Data, Header};
 
