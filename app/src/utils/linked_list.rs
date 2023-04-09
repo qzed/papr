@@ -307,9 +307,7 @@ mod test {
         type Pointer = Pin<&'a Entry>;
 
         fn into_raw(handle: Pin<&'_ Entry>) -> NonNull<Entry> {
-            let ptr = NonNull::from(handle.get_ref());
-            std::mem::forget(handle);
-            ptr
+            NonNull::from(std::mem::ManuallyDrop::new(handle).get_ref())
         }
 
         unsafe fn from_raw(ptr: NonNull<Entry>) -> Pin<&'a Entry> {
@@ -317,8 +315,7 @@ mod test {
         }
 
         unsafe fn pointers(node: NonNull<Entry>) -> NonNull<Pointers<Entry>> {
-            let ptrs = std::ptr::addr_of_mut!((*node.as_ptr()).ptr);
-            NonNull::new_unchecked(ptrs)
+            NonNull::new_unchecked(std::ptr::addr_of_mut!((*node.as_ptr()).ptr))
         }
     }
 
