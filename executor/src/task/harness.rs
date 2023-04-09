@@ -35,7 +35,7 @@ where
         // Check if the closure is present and whether we're allowed to take
         // it. If we are, update the state to "executing" to give us exclusive
         // access to task data.
-        if let Err(_) = header.state.transition_init_to_exec() {
+        if header.state.transition_init_to_exec().is_err() {
             return;
         }
 
@@ -76,7 +76,7 @@ where
         // Check if a result (or panic) is present and whether we're allowed to
         // take it. If we are, update the state to let everyone know that we
         // have claimed the result.
-        if let Err(_) = header.state.transition_complete_to_consumed() {
+        if header.state.transition_complete_to_consumed().is_err() {
             return None;
         }
 
