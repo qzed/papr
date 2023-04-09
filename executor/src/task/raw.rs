@@ -63,7 +63,7 @@ impl RawTask {
         // Shortcut: Don't attempt to cancel if we're already marked as
         // complete. Return "true" to indicate that the task is done.
         if self.is_complete() {
-            return true;
+            return self.is_canceled();
         }
 
         unsafe { (self.vtable().cancel)(self.ptr) }
@@ -96,6 +96,7 @@ impl RawTask {
         self.header().state.snapshot().is_canceled()
     }
 
+    #[allow(unused)]
     pub fn is_consumed(&self) -> bool {
         self.header().state.snapshot().is_consumed()
     }
