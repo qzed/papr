@@ -69,6 +69,11 @@ pub unsafe trait Link: Sized {
     fn into_raw(handle: Self::Pointer) -> NonNull<Self::Node>;
 
     /// Convert the raw pointer to a handle.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the node is a valid node for this type of
+    /// link.
     unsafe fn from_raw(ptr: NonNull<Self::Node>) -> Self::Pointer;
 
     /// Return the pointers for a node
