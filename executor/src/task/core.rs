@@ -6,12 +6,12 @@ use super::state::State;
 use super::vtable;
 use super::vtable::Vtable;
 
-pub struct Cell<F, R> {
+pub struct Cell<T, F, R> {
     /// Common task state and data without any specific type references.
     pub(super) header: Header,
 
     /// Closure or output, depending on the current execution stage.
-    pub(super) core: Core<F, R>,
+    pub(super) core: Core<T, F, R>,
 }
 
 pub struct Header {
@@ -26,9 +26,12 @@ pub struct Header {
     pub(super) vtable: &'static Vtable,
 }
 
-pub struct Core<F, R> {
+pub struct Core<T, F, R> {
     /// Stage specific data.
     pub(super) data: UnsafeCell<Data<F, R>>,
+
+    /// Task adapter
+    pub(super) adapter: T,
 }
 
 #[derive(Default)]
@@ -47,27 +50,28 @@ pub enum Data<F, R> {
     Panic(Box<dyn Any + Send + 'static>),
 }
 
-impl<F, R> Cell<F, R>
+impl<T, F, R> Cell<T, F, R>
 where
     F: FnOnce() -> R + 'static,
     F: Send,
     R: Send,
 {
-    pub fn new(closure: F) -> Box<Cell<F, R>> {
+    pub fn new(adapter: T, closure: F) -> Box<Cell<T, F, R>> {
         Box::new(Cell {
             header: Header {
                 state: State::initial(),
                 complete: Completion::new(),
-                vtable: vtable::vtable::<F, R>(),
+                vtable: vtable::vtable::<T, F, R>(),
             },
             core: Core {
                 data: UnsafeCell::new(Data::Closure(closure)),
+                adapter,
             },
         })
     }
 }
 
-impl<F, R> Core<F, R>
+impl<T, F, R> Core<T, F, R>
 where
     F: FnOnce() -> R,
 {

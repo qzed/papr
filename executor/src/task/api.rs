@@ -6,8 +6,9 @@ pub use super::core::Header;
 use super::raw::RawTask;
 
 /// Handle to an executable task.
-pub struct Task {
+pub struct Task<T> {
     raw: RawTask,
+    _p: PhantomData<T>,
 }
 
 /// Join handle for a task.
@@ -16,33 +17,46 @@ pub struct JoinHandle<R> {
     _p: PhantomData<R>,
 }
 
-impl Task {
+impl<T> Task<T> {
     /// Create a new task.
     ///
     /// Create a new task for the given closure, returning its task- and
     /// join-handle.
-    pub fn new<F, R>(closure: F) -> (Task, JoinHandle<R>)
+    pub fn new<F, R>(adapter: T, closure: F) -> (Task<T>, JoinHandle<R>)
     where
         F: FnOnce() -> R + 'static,
         F: Send,
         R: Send,
     {
-        let raw = RawTask::new(closure);
+        let raw = RawTask::new(adapter, closure);
 
-        let task = Task { raw: raw.clone() };
+        let task = Task {
+            raw: raw.clone(),
+            _p: PhantomData,
+        };
+
         let join = JoinHandle::new(raw);
 
         (task, join)
     }
 
-    pub fn from_raw(ptr: NonNull<Header>) -> Self {
+    pub unsafe fn from_raw(ptr: NonNull<Header>) -> Self {
         Task {
             raw: RawTask::from_raw(ptr),
+            _p: PhantomData,
         }
     }
 
     pub fn into_raw(self) -> NonNull<Header> {
         self.raw.into_raw()
+    }
+
+    pub fn as_raw(self) -> NonNull<Header> {
+        self.raw.as_raw()
+    }
+
+    pub fn get_adapter(raw: NonNull<Header>) -> NonNull<T> {
+        unsafe { RawTask::get_adapter(raw) }
     }
 
     /// Execute the task on the current thread, consuming this handle.
@@ -117,5 +131,84 @@ impl<R: Send> JoinHandle<R> {
         } else {
             Err(self)
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    use crate::utils::linked_list::{Link, List, Pointers};
+
+    struct Adapter {
+        node: Pointers<Header>,
+        test: u32,
+    }
+
+    impl Adapter {
+        fn new(test: u32) -> Self {
+            Adapter {
+                node: Pointers::new(),
+                test,
+            }
+        }
+    }
+
+    // Safety: Tasks are always pinned.
+    unsafe impl Link for Task<Adapter> {
+        type Node = Header;
+        type Pointer = Task<Adapter>;
+
+        fn into_raw(task: Self::Pointer) -> NonNull<Self::Node> {
+            task.into_raw()
+        }
+
+        unsafe fn from_raw(ptr: NonNull<Self::Node>) -> Self::Pointer {
+            Task::from_raw(ptr)
+        }
+
+        unsafe fn pointers(target: NonNull<Self::Node>) -> NonNull<Pointers<Self::Node>> {
+            let ptr = Self::Pointer::get_adapter(target);
+            let ptr = std::ptr::addr_of_mut!((*ptr.as_ptr()).node);
+
+            NonNull::new_unchecked(ptr)
+        }
+    }
+
+    #[test]
+    fn adapter_access() {
+        let value = 42;
+
+        let adapter = Adapter::new(value);
+        let (task, _handle) = Task::new(adapter, || 123);
+
+        let adapter = Task::<Adapter>::get_adapter(task.as_raw());
+
+        assert_eq!(unsafe { adapter.as_ref().test }, value);
+    }
+
+    #[test]
+    fn adapter_queue() {
+        let mut list: List<Task<Adapter>> = List::new();
+
+        let value_a = 123;
+        let adapter = Adapter::new(0);
+        let (task_a, handle_a) = Task::new(adapter, move || value_a);
+
+        let value_b = 456;
+        let adapter = Adapter::new(1);
+        let (task_b, handle_b) = Task::new(adapter, move || value_b);
+
+        list.push_front(task_a);
+        list.push_front(task_b);
+
+        let task_a = list.pop_back().unwrap();
+        task_a.execute();
+
+        let task_b = list.pop_back().unwrap();
+        task_b.execute();
+
+        assert_eq!(handle_a.join(), value_a);
+        assert_eq!(handle_b.join(), value_b);
     }
 }

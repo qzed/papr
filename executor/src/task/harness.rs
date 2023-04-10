@@ -5,16 +5,16 @@ use crate::utils::ptr::container_of;
 
 use super::core::{Cell, Core, Data, Header};
 
-pub struct Harness<F, R> {
-    ptr: NonNull<Cell<F, R>>,
+pub struct Harness<T, F, R> {
+    ptr: NonNull<Cell<T, F, R>>,
 }
 
-impl<F, R> Harness<F, R>
+impl<T, F, R> Harness<T, F, R>
 where
     F: FnOnce() -> R,
 {
     pub fn from_raw(ptr: NonNull<Header>) -> Self {
-        let ptr = container_of!(ptr.as_ptr(), Cell<F, R>, header);
+        let ptr = container_of!(ptr.as_ptr(), Cell<T, F, R>, header);
         let ptr = unsafe { NonNull::new_unchecked(ptr as *mut _) };
 
         Self { ptr }
@@ -24,8 +24,15 @@ where
         unsafe { &self.ptr.as_ref().header }
     }
 
-    fn core(&self) -> &Core<F, R> {
+    fn core(&self) -> &Core<T, F, R> {
         unsafe { &self.ptr.as_ref().core }
+    }
+
+    pub fn get_adapter(ptr: NonNull<Header>) -> NonNull<T> {
+        let ptr = container_of!(ptr.as_ptr(), Cell<T, F, R>, header);
+        let ptr = unsafe { std::ptr::addr_of!((*ptr).core.adapter) };
+
+        unsafe { NonNull::new_unchecked(ptr as *mut T) }
     }
 
     pub fn execute(&self) {

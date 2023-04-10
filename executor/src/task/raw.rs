@@ -9,13 +9,13 @@ pub struct RawTask {
 }
 
 impl RawTask {
-    pub fn new<F, R>(closure: F) -> Self
+    pub fn new<T, F, R>(adapter: T, closure: F) -> Self
     where
         F: FnOnce() -> R + 'static,
         F: Send,
         R: Send,
     {
-        let cell = Cell::new(closure);
+        let cell = Cell::new(adapter, closure);
 
         let ptr = Box::into_raw(cell);
         let ptr = unsafe { std::ptr::addr_of_mut!((*ptr).header) };
@@ -24,12 +24,16 @@ impl RawTask {
         Self { ptr }
     }
 
-    pub fn from_raw(ptr: NonNull<Header>) -> Self {
+    pub unsafe fn from_raw(ptr: NonNull<Header>) -> Self {
         Self { ptr }
     }
 
     pub fn into_raw(self) -> NonNull<Header> {
-        std::mem::ManuallyDrop::new(self).header_ptr()
+        std::mem::ManuallyDrop::new(self).as_raw()
+    }
+
+    pub fn as_raw(&self) -> NonNull<Header> {
+        self.header_ptr()
     }
 
     fn header_ptr(&self) -> NonNull<Header> {
@@ -42,6 +46,11 @@ impl RawTask {
 
     fn vtable(&self) -> &'static Vtable {
         self.header().vtable
+    }
+
+    // Safety: The provided type must match the adapter type of this task.
+    pub unsafe fn get_adapter<T>(ptr: NonNull<Header>) -> NonNull<T> {
+        unsafe { (ptr.as_ref().vtable.get_adapter)(ptr).cast::<T>() }
     }
 
     pub fn execute(&self) {
@@ -130,7 +139,7 @@ mod test {
         let closure = move || value;
 
         // create new task
-        let task = RawTask::new(closure);
+        let task = RawTask::new((), closure);
 
         assert!(!task.is_complete());
         assert!(!task.is_canceled());
@@ -176,7 +185,7 @@ mod test {
         };
 
         // create new task
-        let task = RawTask::new(closure);
+        let task = RawTask::new((), closure);
 
         assert!(!task.is_complete());
         assert!(!task.is_canceled());
@@ -216,7 +225,7 @@ mod test {
         };
 
         // create a new task
-        let task = RawTask::new(closure);
+        let task = RawTask::new((), closure);
 
         assert!(!task.is_complete());
         assert!(!task.is_canceled());
@@ -257,7 +266,7 @@ mod test {
         };
 
         // create a new task
-        let task = RawTask::new(closure);
+        let task = RawTask::new((), closure);
 
         // execute the task on a new thread and wait for it to finish
         std::thread::scope(|s| {
