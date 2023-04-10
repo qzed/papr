@@ -17,7 +17,8 @@ type TaskList = linked_list::List<Task>;
 
 pub use task::Handle;
 
-/// A basic thread-pool executor with a fixed number of threads.
+/// A basic thread-pool executor with a fixed number of threads and cancellable
+/// tasks.
 pub struct Executor {
     inner: Arc<ExecutorStruct>,
 
