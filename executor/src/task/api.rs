@@ -17,6 +17,29 @@ pub struct JoinHandle<R> {
     _p: PhantomData<R>,
 }
 
+/// Execution adapter.
+///
+/// This trait allows hooking into specific stages of the task execution.  It
+/// can be used to track the lifecycle of a taks from inside executors, for
+/// example to clean up after a task has been canceled.
+pub trait Adapter {
+    /// Executed when the task starts executing its closure.
+    fn on_execute(&self, _task: NonNull<Header>) {}
+
+    /// Executed when the task finished executing its closure, either
+    /// successfully or via a panic.
+    fn on_complete(&self, _task: NonNull<Header>) {}
+
+    /// Executed when the result of the task is being consumed.
+    fn on_consume(&self, _task: NonNull<Header>) {}
+
+    /// Executed when the task has been canceled successfully.
+    fn on_cancel(&self, _task: NonNull<Header>) {}
+
+    /// Executed right before the task is being deallocated.
+    fn on_dealloc(&self, _task: NonNull<Header>) {}
+}
+
 impl<T> Task<T> {
     /// Create a new task.
     ///
@@ -26,7 +49,7 @@ impl<T> Task<T> {
     where
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
-        T: Send + Sync + 'static,
+        T: Adapter + Send + Sync + 'static,
     {
         let raw = RawTask::new(adapter, closure);
 
@@ -157,23 +180,58 @@ impl<R: Send> JoinHandle<R> {
     }
 }
 
+impl Adapter for () {}
+
 #[cfg(test)]
 mod test {
+    use std::sync::{Arc, Mutex};
+
     use super::*;
 
     use crate::utils::linked_list::{Link, List, Pointers};
 
+    #[derive(Clone)]
+    struct Queue {
+        list: Arc<Mutex<List<Task<Adapter>>>>,
+    }
+
+    impl Queue {
+        fn new() -> Self {
+            Queue {
+                list: Arc::new(Mutex::new(List::new())),
+            }
+        }
+
+        fn push(&self, task: Task<Adapter>) {
+            self.list.lock().unwrap().push_front(task)
+        }
+
+        fn pop(&self) -> Option<Task<Adapter>> {
+            self.list.lock().unwrap().pop_back()
+        }
+    }
+
     struct Adapter {
         node: Pointers<Header>,
+        queue: Queue,
         test: u32,
     }
 
     impl Adapter {
-        fn new(test: u32) -> Self {
+        fn new(queue: Queue, test: u32) -> Self {
             Adapter {
                 node: Pointers::new(),
+                queue,
                 test,
             }
+        }
+    }
+
+    impl super::Adapter for Adapter {
+        fn on_cancel(&self, task: NonNull<Header>) {
+            // remove ourselves from the task queue
+            let mut list = self.queue.list.lock().unwrap();
+            unsafe { list.remove(task) };
         }
     }
 
@@ -200,38 +258,93 @@ mod test {
 
     #[test]
     fn adapter_access() {
-        let value = 42;
+        let queue = Queue::new();
 
-        let adapter = Adapter::new(value);
+        // create a new task with the specified adapter, storing a value inside it
+        let value = 42;
+        let adapter = Adapter::new(queue.clone(), value);
         let (task, _handle) = Task::new(adapter, || 123);
 
+        // get a pointer to the adapter
         let adapter = Task::<Adapter>::get_adapter(task.as_raw());
 
+        // read back the value we stored in the adapter and make sure it matches
         assert_eq!(unsafe { adapter.as_ref().test }, value);
     }
 
     #[test]
     fn adapter_queue() {
-        let mut list: List<Task<Adapter>> = List::new();
+        let queue = Queue::new();
 
+        // create a task
         let value_a = 123;
-        let adapter = Adapter::new(0);
+        let adapter = Adapter::new(queue.clone(), 0);
         let (task_a, handle_a) = Task::new(adapter, move || value_a);
 
+        // create another task
         let value_b = 456;
-        let adapter = Adapter::new(1);
+        let adapter = Adapter::new(queue.clone(), 0);
         let (task_b, handle_b) = Task::new(adapter, move || value_b);
 
-        list.push_front(task_a);
-        list.push_front(task_b);
+        // push both tasks to the queue
+        queue.push(task_a);
+        queue.push(task_b);
 
-        let task_a = list.pop_back().unwrap();
+        // pop the first task from the queue and execute it
+        let task_a = queue.pop().unwrap();
         task_a.execute();
 
-        let task_b = list.pop_back().unwrap();
+        // pop the second task from the queue and execute it
+        let task_b = queue.pop().unwrap();
         task_b.execute();
 
+        // make sure the results are as we expect
         assert_eq!(handle_a.join(), value_a);
+        assert_eq!(handle_b.join(), value_b);
+
+        // the queue should be empty now
+        assert!(queue.pop().is_none());
+    }
+
+    #[test]
+    fn adapter_cancel_queue() {
+        let queue = Queue::new();
+
+        // create a task
+        let value_a = 123;
+        let adapter = Adapter::new(queue.clone(), 0);
+        let (task_a, handle_a) = Task::new(adapter, move || value_a);
+
+        // create another task
+        let value_b = 456;
+        let adapter = Adapter::new(queue.clone(), 1);
+        let (task_b, handle_b) = Task::new(adapter, move || value_b);
+
+        // push both tasks to the queue
+        queue.push(task_a);
+        queue.push(task_b);
+
+        // cancel the first task: this should remove it from the queue
+        let res = handle_a.cancel();
+        assert!(res.is_ok());
+
+        // pop the remaining task from the queue and execute it
+        let task_b = queue.pop().unwrap();
+
+        // the queue should be empty now
+        assert!(queue.pop().is_none());
+
+        // get a pointer to the adapter of this task
+        let adapter = Task::<Adapter>::get_adapter(task_b.as_raw());
+
+        // read back the value we stored in the adapter and make sure it
+        // matches the second task
+        assert_eq!(unsafe { adapter.as_ref().test }, 1);
+
+        // execute the task
+        task_b.execute();
+
+        // make sure the results are as we expect
         assert_eq!(handle_b.join(), value_b);
     }
 }

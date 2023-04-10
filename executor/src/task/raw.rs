@@ -1,6 +1,7 @@
 use std::ptr::NonNull;
 use std::time::Duration;
 
+use super::api::Adapter;
 use super::core::{Cell, Header};
 use super::vtable::Vtable;
 
@@ -13,7 +14,7 @@ impl RawTask {
     where
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
-        T: Send + Sync + 'static,
+        T: Adapter + Send + Sync + 'static,
     {
         let cell = Cell::new(adapter, closure);
 

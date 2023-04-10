@@ -3,6 +3,7 @@ use std::ptr::NonNull;
 
 use crate::utils::ptr::container_of;
 
+use super::api::Adapter;
 use super::core::{Cell, Core, Data, Header};
 
 pub struct Harness<T, F, R> {
@@ -11,13 +12,18 @@ pub struct Harness<T, F, R> {
 
 impl<T, F, R> Harness<T, F, R>
 where
-    F: FnOnce() -> R,
+    F: FnOnce() -> R + Send + 'static,
+    T: Adapter + Send + Sync + 'static,
 {
     pub fn from_raw(ptr: NonNull<Header>) -> Self {
         let ptr = container_of!(ptr.as_ptr(), Cell<T, F, R>, header);
         let ptr = unsafe { NonNull::new_unchecked(ptr as *mut _) };
 
         Self { ptr }
+    }
+
+    fn header_ptr(&self) -> NonNull<Header> {
+        unsafe { NonNull::new_unchecked(std::ptr::addr_of_mut!((*self.ptr.as_ptr()).header)) }
     }
 
     fn header(&self) -> &Header {
@@ -46,6 +52,9 @@ where
             return;
         }
 
+        // Run the adapter callback for execution.
+        core.adapter.on_execute(self.header_ptr());
+
         // Take the closure from the task data.
         //
         // Safety: By checking the state and successfully marking the task as
@@ -69,6 +78,9 @@ where
             Err(panic) => unsafe { core.set_panic(panic) },
         }
 
+        // Run the adapter callback for completion.
+        core.adapter.on_complete(self.header_ptr());
+
         // Mark task as complete.
         let _ = header.state.transition_exec_to_complete();
 
@@ -86,6 +98,9 @@ where
         if header.state.transition_complete_to_consumed().is_err() {
             return None;
         }
+
+        // Run the adapter callback.
+        core.adapter.on_consume(self.header_ptr());
 
         // Take the result from the task data.
         //
@@ -112,6 +127,9 @@ where
             return state.is_canceled();
         }
 
+        // Run the adapter callback.
+        core.adapter.on_cancel(self.header_ptr());
+
         // Drop the closure, mark ourselves as completed, and return "success".
         drop(unsafe { core.take_data() });
         header.complete.set_completed();
@@ -121,6 +139,9 @@ where
     pub fn dealloc(self) {
         // Verify that we're actually the last reference.
         debug_assert_eq!(self.header().state.snapshot().refcount(), 0);
+
+        // Run the adapter callback.
+        self.core().adapter.on_dealloc(self.header_ptr());
 
         // Drop the stage-specific data. If we get to here and the user cares
         // about the result, it should already have been taken, so we

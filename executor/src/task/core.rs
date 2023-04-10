@@ -1,6 +1,7 @@
 use std::any::Any;
 use std::cell::UnsafeCell;
 
+use super::api::Adapter;
 use super::completion::Completion;
 use super::state::State;
 use super::vtable;
@@ -66,7 +67,7 @@ impl<T, F, R> Cell<T, F, R>
 where
     F: FnOnce() -> R + Send + 'static,
     R: Send + 'static,
-    T: Send + Sync + 'static,
+    T: Adapter + Send + Sync + 'static,
 {
     pub fn new(adapter: T, closure: F) -> Box<Cell<T, F, R>> {
         Box::new(Cell {
