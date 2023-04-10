@@ -8,12 +8,12 @@ use super::vtable;
 use super::vtable::Vtable;
 
 /// Full task structure, encompassing all task data.
-pub struct Cell<T, F, R> {
+pub struct Cell<A, F, R> {
     /// Common task state and data without any specific type references.
     pub(super) header: Header,
 
     /// Closure or output, depending on the current execution stage.
-    pub(super) core: Core<T, F, R>,
+    pub(super) core: Core<A, F, R>,
 }
 
 /// Task header.
@@ -35,12 +35,12 @@ pub struct Header {
 ///
 /// Stores the type-secific task data (i.e., closure or result, depending on
 /// the stage) and the task adapter.
-pub struct Core<T, F, R> {
+pub struct Core<A, F, R> {
     /// Stage specific data.
     pub(super) data: UnsafeCell<Data<F, R>>,
 
     /// Task adapter
-    pub(super) adapter: T,
+    pub(super) adapter: A,
 }
 
 /// Stage-specific task data.
@@ -63,18 +63,19 @@ pub enum Data<F, R> {
     Panic(Box<dyn Any + Send + 'static>),
 }
 
-impl<T, F, R> Cell<T, F, R>
+impl<A, F, R> Cell<A, F, R>
 where
     F: FnOnce() -> R + Send + 'static,
     R: Send + 'static,
-    T: Adapter + Send + Sync + 'static,
+    A: Adapter + Send + 'static,
+    A::Data: Send + Sync + 'static,
 {
-    pub fn new(adapter: T, closure: F) -> Box<Cell<T, F, R>> {
+    pub fn new(adapter: A, closure: F) -> Box<Cell<A, F, R>> {
         Box::new(Cell {
             header: Header {
                 state: State::initial(),
                 complete: Completion::new(),
-                vtable: vtable::vtable::<T, F, R>(),
+                vtable: vtable::vtable::<A, F, R>(),
             },
             core: Core {
                 data: UnsafeCell::new(Data::Closure(closure)),
@@ -84,7 +85,7 @@ where
     }
 }
 
-impl<T, F, R> Core<T, F, R> {
+impl<A, F, R> Core<A, F, R> {
     pub unsafe fn take_data(&self) -> Data<F, R> {
         std::mem::take(&mut *self.data.get())
     }

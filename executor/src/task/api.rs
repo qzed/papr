@@ -23,6 +23,13 @@ pub struct Handle<R> {
 /// can be used to track the lifecycle of a taks from inside executors, for
 /// example to clean up after a task has been canceled.
 pub trait Adapter {
+    type Data;
+
+    /// Get the pointer to the adapter data.
+    ///
+    /// Note: This must not create any intermediate references.
+    fn get_data_ptr(ptr: NonNull<Self>) -> NonNull<Self::Data>;
+
     /// Executed when the task starts executing its closure.
     fn on_execute(&self, _task: NonNull<Header>) {}
 
@@ -45,11 +52,12 @@ impl<T> Task<T> {
     ///
     /// Create a new task for the given closure, returning its task- and
     /// join-handle.
-    pub fn new<F, R>(adapter: T, closure: F) -> (Task<T>, Handle<R>)
+    pub fn new<A, F, R>(adapter: A, closure: F) -> (Task<A::Data>, Handle<R>)
     where
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
-        T: Adapter + Send + Sync + 'static,
+        A: Adapter<Data = T> + Send + 'static,
+        A::Data: Send + Sync + 'static,
     {
         let raw = RawTask::new(adapter, closure);
 
@@ -101,8 +109,8 @@ impl<T> Task<T> {
     }
 
     /// Get the adapter data associated with the provided raw task.
-    pub fn get_adapter(raw: NonNull<Header>) -> NonNull<T> {
-        unsafe { RawTask::get_adapter(raw) }
+    pub fn get_adapter_data(raw: NonNull<Header>) -> NonNull<T> {
+        unsafe { RawTask::get_adapter_data(raw) }
     }
 
     /// Execute the task on the current thread, consuming this handle.
@@ -180,7 +188,13 @@ impl<R: Send> Handle<R> {
     }
 }
 
-impl Adapter for () {}
+impl Adapter for () {
+    type Data = ();
+
+    fn get_data_ptr(ptr: NonNull<Self>) -> NonNull<Self::Data> {
+        ptr.cast()
+    }
+}
 
 #[cfg(test)]
 mod test {
@@ -192,12 +206,12 @@ mod test {
 
     #[derive(Clone)]
     struct Queue {
-        list: Arc<Mutex<List<Task<Adapter>>>>,
+        list: Arc<Mutex<List<Task<Data>>>>,
     }
 
     #[derive(Clone)]
     struct QueueRef {
-        list: Weak<Mutex<List<Task<Adapter>>>>,
+        list: Weak<Mutex<List<Task<Data>>>>,
     }
 
     impl Queue {
@@ -213,11 +227,11 @@ mod test {
             }
         }
 
-        fn push(&self, task: Task<Adapter>) {
+        fn push(&self, task: Task<Data>) {
             self.list.lock().unwrap().push_front(task)
         }
 
-        fn pop(&self) -> Option<Task<Adapter>> {
+        fn pop(&self) -> Option<Task<Data>> {
             self.list.lock().unwrap().pop_back()
         }
     }
@@ -230,23 +244,35 @@ mod test {
         }
     }
 
-    struct Adapter {
+    struct Data {
         node: Pointers<Header>,
-        queue: QueueRef,
         test: u32,
+    }
+
+    struct Adapter {
+        data: Data,
+        queue: QueueRef,
     }
 
     impl Adapter {
         fn new(queue: QueueRef, test: u32) -> Self {
             Adapter {
-                node: Pointers::new(),
+                data: Data {
+                    node: Pointers::new(),
+                    test,
+                },
                 queue,
-                test,
             }
         }
     }
 
     impl super::Adapter for Adapter {
+        type Data = Data;
+
+        fn get_data_ptr(ptr: NonNull<Self>) -> NonNull<Self::Data> {
+            unsafe { NonNull::new_unchecked(std::ptr::addr_of_mut!((*ptr.as_ptr()).data)) }
+        }
+
         fn on_cancel(&self, task: NonNull<Header>) {
             // remove ourselves from the task queue
             unsafe { self.queue.remove(task) }
@@ -254,9 +280,9 @@ mod test {
     }
 
     // Safety: Tasks are always pinned.
-    unsafe impl Link for Task<Adapter> {
+    unsafe impl Link for Task<Data> {
         type Node = Header;
-        type Pointer = Task<Adapter>;
+        type Pointer = Task<Data>;
 
         fn into_raw(task: Self::Pointer) -> NonNull<Self::Node> {
             task.into_raw()
@@ -267,7 +293,7 @@ mod test {
         }
 
         unsafe fn pointers(target: NonNull<Self::Node>) -> NonNull<Pointers<Self::Node>> {
-            let ptr = Self::Pointer::get_adapter(target);
+            let ptr = Self::Pointer::get_adapter_data(target);
             let ptr = std::ptr::addr_of_mut!((*ptr.as_ptr()).node);
 
             NonNull::new_unchecked(ptr)
@@ -284,7 +310,7 @@ mod test {
         let (task, _handle) = Task::new(adapter, || 123);
 
         // get a pointer to the adapter
-        let adapter = Task::<Adapter>::get_adapter(task.as_raw());
+        let adapter = Task::<Data>::get_adapter_data(task.as_raw());
 
         // read back the value we stored in the adapter and make sure it matches
         assert_eq!(unsafe { adapter.as_ref().test }, value);
@@ -353,7 +379,7 @@ mod test {
         assert!(queue.pop().is_none());
 
         // get a pointer to the adapter of this task
-        let adapter = Task::<Adapter>::get_adapter(task_b.as_raw());
+        let adapter = Task::<Data>::get_adapter_data(task_b.as_raw());
 
         // read back the value we stored in the adapter and make sure it
         // matches the second task

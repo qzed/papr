@@ -10,11 +10,12 @@ pub struct RawTask {
 }
 
 impl RawTask {
-    pub fn new<T, F, R>(adapter: T, closure: F) -> Self
+    pub fn new<A, F, R>(adapter: A, closure: F) -> Self
     where
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
-        T: Adapter + Send + Sync + 'static,
+        A: Adapter + Send + 'static,
+        A::Data: Send + Sync + 'static,
     {
         let cell = Cell::new(adapter, closure);
 
@@ -50,8 +51,8 @@ impl RawTask {
     }
 
     // Safety: The provided type must match the adapter type of this task.
-    pub unsafe fn get_adapter<T>(ptr: NonNull<Header>) -> NonNull<T> {
-        unsafe { (ptr.as_ref().vtable.get_adapter)(ptr).cast::<T>() }
+    pub unsafe fn get_adapter_data<T>(ptr: NonNull<Header>) -> NonNull<T> {
+        unsafe { (ptr.as_ref().vtable.get_adapter_data)(ptr).cast::<T>() }
     }
 
     pub fn execute(&self) {

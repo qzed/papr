@@ -9,60 +9,66 @@ pub struct Vtable {
     pub cancel: unsafe fn(NonNull<Header>) -> bool,
     pub read_result: unsafe fn(NonNull<Header>, *mut ()),
     pub dealloc: unsafe fn(NonNull<Header>),
-    pub get_adapter: unsafe fn(NonNull<Header>) -> NonNull<()>,
+    pub get_adapter_data: unsafe fn(NonNull<Header>) -> NonNull<()>,
 }
 
-pub fn vtable<T, F, R>() -> &'static Vtable
+pub fn vtable<A, F, R>() -> &'static Vtable
 where
     F: FnOnce() -> R + Send + 'static,
-    T: Adapter + Send + Sync + 'static,
+    A: Adapter + Send + 'static,
+    A::Data: Send + Sync + 'static,
 {
     &Vtable {
-        execute: execute::<T, F, R>,
-        cancel: cancel::<T, F, R>,
-        read_result: read_result::<T, F, R>,
-        dealloc: dealloc::<T, F, R>,
-        get_adapter: get_adapter::<T, F, R>,
+        execute: execute::<A, F, R>,
+        cancel: cancel::<A, F, R>,
+        read_result: read_result::<A, F, R>,
+        dealloc: dealloc::<A, F, R>,
+        get_adapter_data: get_adapter_data::<A, F, R>,
     }
 }
 
-unsafe fn execute<T, F, R>(ptr: NonNull<Header>)
+unsafe fn execute<A, F, R>(ptr: NonNull<Header>)
 where
     F: FnOnce() -> R + Send + 'static,
-    T: Adapter + Send + Sync + 'static,
+    A: Adapter + Send + 'static,
+    A::Data: Send + Sync + 'static,
 {
-    Harness::<T, F, R>::from_raw(ptr).execute();
+    Harness::<A, F, R>::from_raw(ptr).execute();
 }
 
-unsafe fn read_result<T, F, R>(ptr: NonNull<Header>, out: *mut ())
+unsafe fn read_result<A, F, R>(ptr: NonNull<Header>, out: *mut ())
 where
     F: FnOnce() -> R + Send + 'static,
-    T: Adapter + Send + Sync + 'static,
+    A: Adapter + Send + 'static,
+    A::Data: Send + Sync + 'static,
 {
     let out = &mut *(out as *mut Option<R>);
-    *out = Harness::<T, F, R>::from_raw(ptr).result();
+    *out = Harness::<A, F, R>::from_raw(ptr).result();
 }
 
-unsafe fn cancel<T, F, R>(ptr: NonNull<Header>) -> bool
+unsafe fn cancel<A, F, R>(ptr: NonNull<Header>) -> bool
 where
     F: FnOnce() -> R + Send + 'static,
-    T: Adapter + Send + Sync + 'static,
+    A: Adapter + Send + 'static,
+    A::Data: Send + Sync + 'static,
 {
-    Harness::<T, F, R>::from_raw(ptr).cancel()
+    Harness::<A, F, R>::from_raw(ptr).cancel()
 }
 
-unsafe fn dealloc<T, F, R>(ptr: NonNull<Header>)
+unsafe fn dealloc<A, F, R>(ptr: NonNull<Header>)
 where
     F: FnOnce() -> R + Send + 'static,
-    T: Adapter + Send + Sync + 'static,
+    A: Adapter + Send + 'static,
+    A::Data: Send + Sync + 'static,
 {
-    Harness::<T, F, R>::from_raw(ptr).dealloc();
+    Harness::<A, F, R>::from_raw(ptr).dealloc();
 }
 
-unsafe fn get_adapter<T, F, R>(ptr: NonNull<Header>) -> NonNull<()>
+unsafe fn get_adapter_data<A, F, R>(ptr: NonNull<Header>) -> NonNull<()>
 where
     F: FnOnce() -> R + Send + 'static,
-    T: Adapter + Send + Sync + 'static,
+    A: Adapter + Send + 'static,
+    A::Data: Send + Sync + 'static,
 {
-    Harness::<T, F, R>::get_adapter(ptr).cast::<()>()
+    Harness::<A, F, R>::get_adapter_data(ptr).cast::<()>()
 }

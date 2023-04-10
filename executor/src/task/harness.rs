@@ -10,13 +10,14 @@ pub struct Harness<T, F, R> {
     ptr: NonNull<Cell<T, F, R>>,
 }
 
-impl<T, F, R> Harness<T, F, R>
+impl<A, F, R> Harness<A, F, R>
 where
     F: FnOnce() -> R + Send + 'static,
-    T: Adapter + Send + Sync + 'static,
+    A: Adapter + Send + 'static,
+    A::Data: Send + Sync + 'static,
 {
     pub fn from_raw(ptr: NonNull<Header>) -> Self {
-        let ptr = container_of!(ptr.as_ptr(), Cell<T, F, R>, header);
+        let ptr = container_of!(ptr.as_ptr(), Cell<A, F, R>, header);
         let ptr = unsafe { NonNull::new_unchecked(ptr as *mut _) };
 
         Self { ptr }
@@ -30,15 +31,19 @@ where
         unsafe { &self.ptr.as_ref().header }
     }
 
-    fn core(&self) -> &Core<T, F, R> {
+    fn core(&self) -> &Core<A, F, R> {
         unsafe { &self.ptr.as_ref().core }
     }
 
-    pub fn get_adapter(ptr: NonNull<Header>) -> NonNull<T> {
-        let ptr = container_of!(ptr.as_ptr(), Cell<T, F, R>, header);
+    pub fn get_adapter(ptr: NonNull<Header>) -> NonNull<A> {
+        let ptr = container_of!(ptr.as_ptr(), Cell<A, F, R>, header);
         let ptr = unsafe { std::ptr::addr_of!((*ptr).core.adapter) };
 
-        unsafe { NonNull::new_unchecked(ptr as *mut T) }
+        unsafe { NonNull::new_unchecked(ptr as *mut A) }
+    }
+
+    pub fn get_adapter_data(ptr: NonNull<Header>) -> NonNull<A::Data> {
+        A::get_data_ptr(Self::get_adapter(ptr))
     }
 
     pub fn execute(&self) {

@@ -12,7 +12,7 @@ use std::thread::JoinHandle;
 use crate::task;
 use crate::utils::linked_list;
 
-type Task = task::Task<Adapter>;
+type Task = task::Task<Data>;
 type TaskList = linked_list::List<Task>;
 
 pub use task::Handle;
@@ -37,8 +37,12 @@ struct ExecutorStruct {
     running: AtomicBool,
 }
 
-struct Adapter {
+struct Data {
     node: linked_list::Pointers<task::Header>,
+}
+
+struct Adapter {
+    data: Data,
     exec: Weak<ExecutorStruct>,
 }
 
@@ -135,13 +139,21 @@ impl ExecutorStruct {
 impl Adapter {
     fn new(exec: Weak<ExecutorStruct>) -> Self {
         Adapter {
-            node: linked_list::Pointers::new(),
+            data: Data {
+                node: linked_list::Pointers::new(),
+            },
             exec,
         }
     }
 }
 
 impl task::Adapter for Adapter {
+    type Data = Data;
+
+    fn get_data_ptr(ptr: NonNull<Self>) -> NonNull<Self::Data> {
+        unsafe { NonNull::new_unchecked(std::ptr::addr_of_mut!((*ptr.as_ptr()).data)) }
+    }
+
     fn on_cancel(&self, task: NonNull<task::Header>) {
         // try to get a strong reference to the executor
         if let Some(exec) = self.exec.upgrade() {
@@ -167,7 +179,7 @@ unsafe impl linked_list::Link for Task {
     }
 
     unsafe fn pointers(target: NonNull<Self::Node>) -> NonNull<linked_list::Pointers<Self::Node>> {
-        let ptr = Self::Pointer::get_adapter(target);
+        let ptr = Self::Pointer::get_adapter_data(target);
         let ptr = std::ptr::addr_of_mut!((*ptr.as_ptr()).node);
 
         NonNull::new_unchecked(ptr)
