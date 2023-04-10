@@ -17,6 +17,19 @@ type TaskList = linked_list::List<Task>;
 
 pub use task::Handle;
 
+/// Monitor trait to monitor the progress of a task.
+pub trait Monitor {
+    /// Executed when the task starts executing its closure.
+    fn on_execute(&self) {}
+
+    /// Executed when the task finished executing its closure, either
+    /// successfully or via a panic.
+    fn on_complete(&self) {}
+
+    /// Executed when the task has been canceled successfully.
+    fn on_canceled(&self) {}
+}
+
 /// A basic thread-pool executor with a fixed number of threads and cancellable
 /// tasks.
 pub struct Executor {
@@ -41,9 +54,10 @@ struct Data {
     node: linked_list::Pointers<task::Header>,
 }
 
-struct Adapter {
+struct Adapter<M> {
     data: Data,
     exec: Weak<ExecutorStruct>,
+    monitor: M,
 }
 
 impl Executor {
@@ -70,7 +84,16 @@ impl Executor {
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
-        let adapter = Adapter::new(Arc::downgrade(&self.inner));
+        self.submit_with((), closure)
+    }
+
+    pub fn submit_with<F, R, M>(&self, monitor: M, closure: F) -> Handle<R>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+        M: Monitor + Send + 'static,
+    {
+        let adapter = Adapter::new(Arc::downgrade(&self.inner), monitor);
         let (task, handle) = Task::new(adapter, closure);
 
         self.inner.push(task);
@@ -136,18 +159,25 @@ impl ExecutorStruct {
     }
 }
 
-impl Adapter {
-    fn new(exec: Weak<ExecutorStruct>) -> Self {
+impl<M> Adapter<M>
+where
+    M: Monitor + Send + 'static,
+{
+    fn new(exec: Weak<ExecutorStruct>, monitor: M) -> Self {
         Adapter {
             data: Data {
                 node: linked_list::Pointers::new(),
             },
             exec,
+            monitor,
         }
     }
 }
 
-impl task::Adapter for Adapter {
+impl<M> task::Adapter for Adapter<M>
+where
+    M: Monitor + Send + 'static,
+{
     type Data = Data;
 
     fn get_data_ptr(ptr: NonNull<Self>) -> NonNull<Self::Data> {
@@ -162,8 +192,20 @@ impl task::Adapter for Adapter {
             // try to remove ourselves from the queue
             unsafe { queue.remove(task) };
         }
+
+        self.monitor.on_canceled();
+    }
+
+    fn on_complete(&self, _task: NonNull<task::Header>) {
+        self.monitor.on_complete();
+    }
+
+    fn on_execute(&self, _task: NonNull<task::Header>) {
+        self.monitor.on_execute();
     }
 }
+
+impl Monitor for () {}
 
 // Safety: Tasks are always pinned.
 unsafe impl linked_list::Link for Task {
