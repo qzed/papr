@@ -184,7 +184,7 @@ impl Adapter for () {}
 
 #[cfg(test)]
 mod test {
-    use std::sync::{Arc, Mutex};
+    use std::sync::{Arc, Mutex, Weak};
 
     use super::*;
 
@@ -195,10 +195,21 @@ mod test {
         list: Arc<Mutex<List<Task<Adapter>>>>,
     }
 
+    #[derive(Clone)]
+    struct QueueRef {
+        list: Weak<Mutex<List<Task<Adapter>>>>,
+    }
+
     impl Queue {
         fn new() -> Self {
             Queue {
                 list: Arc::new(Mutex::new(List::new())),
+            }
+        }
+
+        fn weak(&self) -> QueueRef {
+            QueueRef {
+                list: Arc::downgrade(&self.list),
             }
         }
 
@@ -211,14 +222,22 @@ mod test {
         }
     }
 
+    impl QueueRef {
+        unsafe fn remove(&self, task: NonNull<Header>) {
+            if let Some(list) = self.list.upgrade() {
+                list.lock().unwrap().remove(task);
+            }
+        }
+    }
+
     struct Adapter {
         node: Pointers<Header>,
-        queue: Queue,
+        queue: QueueRef,
         test: u32,
     }
 
     impl Adapter {
-        fn new(queue: Queue, test: u32) -> Self {
+        fn new(queue: QueueRef, test: u32) -> Self {
             Adapter {
                 node: Pointers::new(),
                 queue,
@@ -230,8 +249,7 @@ mod test {
     impl super::Adapter for Adapter {
         fn on_cancel(&self, task: NonNull<Header>) {
             // remove ourselves from the task queue
-            let mut list = self.queue.list.lock().unwrap();
-            unsafe { list.remove(task) };
+            unsafe { self.queue.remove(task) }
         }
     }
 
@@ -262,7 +280,7 @@ mod test {
 
         // create a new task with the specified adapter, storing a value inside it
         let value = 42;
-        let adapter = Adapter::new(queue.clone(), value);
+        let adapter = Adapter::new(queue.weak(), value);
         let (task, _handle) = Task::new(adapter, || 123);
 
         // get a pointer to the adapter
@@ -278,12 +296,12 @@ mod test {
 
         // create a task
         let value_a = 123;
-        let adapter = Adapter::new(queue.clone(), 0);
+        let adapter = Adapter::new(queue.weak(), 0);
         let (task_a, handle_a) = Task::new(adapter, move || value_a);
 
         // create another task
         let value_b = 456;
-        let adapter = Adapter::new(queue.clone(), 0);
+        let adapter = Adapter::new(queue.weak(), 0);
         let (task_b, handle_b) = Task::new(adapter, move || value_b);
 
         // push both tasks to the queue
@@ -312,12 +330,12 @@ mod test {
 
         // create a task
         let value_a = 123;
-        let adapter = Adapter::new(queue.clone(), 0);
+        let adapter = Adapter::new(queue.weak(), 0);
         let (task_a, handle_a) = Task::new(adapter, move || value_a);
 
         // create another task
         let value_b = 456;
-        let adapter = Adapter::new(queue.clone(), 1);
+        let adapter = Adapter::new(queue.weak(), 1);
         let (task_b, handle_b) = Task::new(adapter, move || value_b);
 
         // push both tasks to the queue
@@ -346,5 +364,32 @@ mod test {
 
         // make sure the results are as we expect
         assert_eq!(handle_b.join(), value_b);
+    }
+
+    /// This test is intended to be run via `cargo miri test` for leak testing.
+    #[test]
+    fn drop_queue() {
+        let queue = Queue::new();
+
+        // create a task
+        let value_a = 123;
+        let adapter = Adapter::new(queue.weak(), 0);
+        let (task_a, handle_a) = Task::new(adapter, move || value_a);
+
+        // create another task
+        let value_b = 456;
+        let adapter = Adapter::new(queue.weak(), 1);
+        let (task_b, handle_b) = Task::new(adapter, move || value_b);
+
+        // drop handles
+        drop(handle_a);
+        drop(handle_b);
+
+        // push both tasks to the queue
+        queue.push(task_a);
+        queue.push(task_b);
+
+        // drop queue with tasks
+        drop(queue);
     }
 }
