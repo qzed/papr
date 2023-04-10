@@ -1,4 +1,4 @@
 mod task;
 mod utils;
 
-pub use task::JoinHandle;
+pub use task::Handle;

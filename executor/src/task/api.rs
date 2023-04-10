@@ -5,14 +5,14 @@ use std::time::Duration;
 pub use super::core::Header;
 use super::raw::RawTask;
 
-/// Handle to an executable task.
+/// Direct handle to an executable task.
 pub struct Task<T> {
     raw: RawTask,
     _p: PhantomData<T>,
 }
 
-/// Join handle for a task.
-pub struct JoinHandle<R> {
+/// Remote handle for a task.
+pub struct Handle<R> {
     raw: RawTask,
     _p: PhantomData<R>,
 }
@@ -45,7 +45,7 @@ impl<T> Task<T> {
     ///
     /// Create a new task for the given closure, returning its task- and
     /// join-handle.
-    pub fn new<F, R>(adapter: T, closure: F) -> (Task<T>, JoinHandle<R>)
+    pub fn new<F, R>(adapter: T, closure: F) -> (Task<T>, Handle<R>)
     where
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
@@ -58,9 +58,9 @@ impl<T> Task<T> {
             _p: PhantomData,
         };
 
-        let join = JoinHandle::new(raw);
+        let handle = Handle::new(raw);
 
-        (task, join)
+        (task, handle)
     }
 
     /// Constructs a task from a raw pointer to its task header.
@@ -111,9 +111,9 @@ impl<T> Task<T> {
     }
 }
 
-impl<R: Send> JoinHandle<R> {
+impl<R: Send> Handle<R> {
     fn new(raw: RawTask) -> Self {
-        JoinHandle {
+        Handle {
             raw,
             _p: PhantomData,
         }
