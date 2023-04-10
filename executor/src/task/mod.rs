@@ -6,4 +6,4 @@ mod raw;
 mod state;
 mod vtable;
 
-pub use self::api::{JoinHandle, Task};
+pub use self::api::{JoinHandle, Task, Header};

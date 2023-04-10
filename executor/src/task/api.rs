@@ -2,8 +2,6 @@ use std::marker::PhantomData;
 use std::ptr::NonNull;
 use std::time::Duration;
 
-use crate::utils::linked_list;
-
 pub use super::core::Header;
 use super::raw::RawTask;
 
@@ -37,13 +35,13 @@ impl Task {
         (task, join)
     }
 
-    fn from_raw(ptr: NonNull<Header>) -> Self {
+    pub fn from_raw(ptr: NonNull<Header>) -> Self {
         Task {
             raw: RawTask::from_raw(ptr),
         }
     }
 
-    fn into_raw(self) -> NonNull<Header> {
+    pub fn into_raw(self) -> NonNull<Header> {
         self.raw.into_raw()
     }
 
@@ -119,23 +117,5 @@ impl<R: Send> JoinHandle<R> {
         } else {
             Err(self)
         }
-    }
-}
-
-// Safety: Tasks are always pinned.
-unsafe impl linked_list::Link for Task {
-    type Node = Header;
-    type Pointer = Task;
-
-    fn into_raw(task: Self::Pointer) -> NonNull<Self::Node> {
-        task.into_raw()
-    }
-
-    unsafe fn from_raw(ptr: NonNull<Self::Node>) -> Self::Pointer {
-        Task::from_raw(ptr)
-    }
-
-    unsafe fn pointers(target: NonNull<Self::Node>) -> NonNull<linked_list::Pointers<Self::Node>> {
-        NonNull::new_unchecked(std::ptr::addr_of_mut!((*target.as_ptr()).node))
     }
 }

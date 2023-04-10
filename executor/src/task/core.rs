@@ -1,8 +1,6 @@
 use std::any::Any;
 use std::cell::UnsafeCell;
 
-use crate::utils::linked_list;
-
 use super::completion::Completion;
 use super::state::State;
 use super::vtable;
@@ -10,30 +8,27 @@ use super::vtable::Vtable;
 
 pub struct Cell<F, R> {
     /// Common task state and data without any specific type references.
-    pub header: Header,
+    pub(super) header: Header,
 
     /// Closure or output, depending on the current execution stage.
-    pub core: Core<F, R>,
+    pub(super) core: Core<F, R>,
 }
 
 pub struct Header {
     /// Current state of this task.
-    pub state: State,
+    pub(super) state: State,
 
     /// Synchronization primitive for waiting for and signalling task
     /// completion.
-    pub complete: Completion,
-
-    /// Intrusive list node/pointers for the task queue.
-    pub node: linked_list::Pointers<Header>,
+    pub(super) complete: Completion,
 
     /// Function pointers for dealing with this task in a type-erased context.
-    pub vtable: &'static Vtable,
+    pub(super) vtable: &'static Vtable,
 }
 
 pub struct Core<F, R> {
     /// Stage specific data.
-    pub data: UnsafeCell<Data<F, R>>,
+    pub(super) data: UnsafeCell<Data<F, R>>,
 }
 
 #[derive(Default)]
@@ -63,7 +58,6 @@ where
             header: Header {
                 state: State::initial(),
                 complete: Completion::new(),
-                node: linked_list::Pointers::new(),
                 vtable: vtable::vtable::<F, R>(),
             },
             core: Core {
