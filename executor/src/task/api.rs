@@ -24,9 +24,9 @@ impl<T> Task<T> {
     /// join-handle.
     pub fn new<F, R>(adapter: T, closure: F) -> (Task<T>, JoinHandle<R>)
     where
-        F: FnOnce() -> R + 'static,
-        F: Send,
-        R: Send,
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+        T: Send + Sync + 'static,
     {
         let raw = RawTask::new(adapter, closure);
 

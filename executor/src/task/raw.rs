@@ -11,9 +11,9 @@ pub struct RawTask {
 impl RawTask {
     pub fn new<T, F, R>(adapter: T, closure: F) -> Self
     where
-        F: FnOnce() -> R + 'static,
-        F: Send,
-        R: Send,
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+        T: Send + Sync + 'static,
     {
         let cell = Cell::new(adapter, closure);
 

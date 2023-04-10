@@ -52,9 +52,9 @@ pub enum Data<F, R> {
 
 impl<T, F, R> Cell<T, F, R>
 where
-    F: FnOnce() -> R + 'static,
-    F: Send,
-    R: Send,
+    F: FnOnce() -> R + Send + 'static,
+    R: Send + 'static,
+    T: Send + Sync + 'static,
 {
     pub fn new(adapter: T, closure: F) -> Box<Cell<T, F, R>> {
         Box::new(Cell {
@@ -71,10 +71,7 @@ where
     }
 }
 
-impl<T, F, R> Core<T, F, R>
-where
-    F: FnOnce() -> R,
-{
+impl<T, F, R> Core<T, F, R> {
     pub unsafe fn take_data(&self) -> Data<F, R> {
         std::mem::take(&mut *self.data.get())
     }
