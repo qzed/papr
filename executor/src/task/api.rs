@@ -23,7 +23,7 @@ impl Task {
     /// join-handle.
     pub fn new<F, R>(closure: F) -> (Task, JoinHandle<R>)
     where
-        F: FnOnce() -> R,
+        F: FnOnce() -> R + 'static,
         F: Send,
         R: Send,
     {

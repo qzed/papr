@@ -11,7 +11,7 @@ pub struct RawTask {
 impl RawTask {
     pub fn new<F, R>(closure: F) -> Self
     where
-        F: FnOnce() -> R,
+        F: FnOnce() -> R + 'static,
         F: Send,
         R: Send,
     {
@@ -127,7 +127,7 @@ mod test {
     #[test]
     fn execute_local() {
         let value: i32 = 42;
-        let closure = || value;
+        let closure = move || value;
 
         // create new task
         let task = RawTask::new(closure);
@@ -169,7 +169,7 @@ mod test {
     #[test]
     fn execute_local_cancel() {
         let value: i32 = 42;
-        let closure = || {
+        let closure = move || {
             // this should never be reached
             assert!(false);
             value
@@ -208,7 +208,7 @@ mod test {
     fn execute_remote() {
         let value: i32 = 42;
 
-        let closure = || {
+        let closure = move || {
             // wait a bit to make it look like we're doing some work
             std::thread::sleep(Duration::from_millis(100));
 

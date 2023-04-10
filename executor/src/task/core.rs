@@ -49,7 +49,7 @@ pub enum Data<F, R> {
 
 impl<F, R> Cell<F, R>
 where
-    F: FnOnce() -> R,
+    F: FnOnce() -> R + 'static,
     F: Send,
     R: Send,
 {
