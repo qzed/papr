@@ -1,4 +1,29 @@
-macro_rules! offset_of {
+//! Utilities for pointer arithmetic.
+
+/// Compute the offset to a field inside a struct.
+///
+/// Computes the offset from the beginning of a struct to a given field inside
+/// of it.
+///
+/// # Examples
+///
+/// ```
+/// # use executor::utils::ptr::offset_of;
+/// #[repr(C)]
+/// struct Test {
+///     a: u32,
+///     b: u32,
+/// }
+///
+/// let offs_a = offset_of!(Test, a);
+/// let offs_b = offset_of!(Test, b);
+///
+/// assert_eq!(offs_a, 0);
+/// assert_eq!(offs_b, 4);
+/// ```
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __offset_of {
     ($type:path, $($member:tt)*) => {{
         // Get a temporary object for our pointer calculations
         let tmp = core::mem::MaybeUninit::<$type>::uninit();
@@ -23,9 +48,45 @@ macro_rules! offset_of {
         unsafe { (ptr_member as *const u8).offset_from(ptr_struct as *const u8) }
     }}
 }
-pub(crate) use offset_of;
 
-macro_rules! container_of {
+#[doc(inline)]
+pub use __offset_of as offset_of;
+
+/// Compute the pointer to a wrapping struct.
+///
+/// Given a pointer to a struct wrapped by a larger struct, computes the
+/// pointer to the wrapping struct.
+///
+/// # Examples
+///
+/// ```
+/// # use executor::utils::ptr::container_of;
+/// struct Outer {
+///     pre: u32,
+///     inner: Inner,
+///     post: u32,
+/// }
+///
+/// struct Inner {
+///     value: u32,
+/// }
+///
+/// let outer = Outer {
+///     pre: 123,
+///     inner: Inner {
+///         value: 457,
+///     },
+///     post: 780,
+/// };
+///
+/// let p: *const Inner = &outer.inner;
+/// let p = container_of!(p, Outer, inner);
+///
+/// assert!(std::ptr::eq(&outer, p))
+/// ```
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __container_of {
     ($ptr:expr, $type:ty, $($f:tt)*) => {{
         // Compute offset from outer struct to the member pointer.
         let offset = $crate::utils::ptr::offset_of!($type, $($f)*);
@@ -35,7 +96,9 @@ macro_rules! container_of {
         ptr.wrapping_offset(-offset) as *const $type
     }}
 }
-pub(crate) use container_of;
+
+#[doc(inline)]
+pub use __container_of as container_of;
 
 #[cfg(test)]
 mod test {

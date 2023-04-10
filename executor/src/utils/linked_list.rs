@@ -1,3 +1,7 @@
+//! An intrusively linked list.
+//!
+//! Useful to build task executors.
+
 // Heavily based on the tokio intrusively linked list, which can be found at
 // the following link:
 //

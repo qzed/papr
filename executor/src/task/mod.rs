@@ -1,3 +1,5 @@
+//! A generic executable task implementation.
+
 mod api;
 mod completion;
 mod core;
