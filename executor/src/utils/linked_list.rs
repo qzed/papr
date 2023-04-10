@@ -275,6 +275,12 @@ impl<T> Pointers<T> {
     }
 }
 
+impl<T> Default for Pointers<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<T> std::fmt::Debug for Pointers<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         let prev = self.get_prev();
