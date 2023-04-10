@@ -73,7 +73,7 @@ impl<T> Task<T> {
     }
 
     /// Get the raw type-erased task pointer.
-    pub fn as_raw(self) -> NonNull<Header> {
+    pub fn as_raw(&self) -> NonNull<Header> {
         self.raw.as_raw()
     }
 
