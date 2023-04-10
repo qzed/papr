@@ -78,14 +78,14 @@ where
             Err(panic) => unsafe { core.set_panic(panic) },
         }
 
-        // Run the adapter callback for completion.
-        core.adapter.on_complete(self.header_ptr());
-
         // Mark task as complete.
         let _ = header.state.transition_exec_to_complete();
 
         // Signal completion to wake up all waiting threads.
         header.complete.set_completed();
+
+        // Run the adapter callback for completion.
+        core.adapter.on_complete(self.header_ptr());
     }
 
     pub fn result(&self) -> Option<R> {
