@@ -40,6 +40,19 @@ impl<T> Task<T> {
         (task, join)
     }
 
+    /// Constructs a task from a raw pointer to its task header.
+    ///
+    /// After calling this function, the task reference from the provided
+    /// pointer is owned by the resulting `Task` struct. Further access via the
+    /// pointer should therefore be avoided.
+    ///
+    /// This function is akin to [`Box::from_raw`].
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the provided pointer points to a valid
+    /// task, i.e., a task that has previously been turned into a pointer via
+    /// [`Task::into_raw`].
     pub unsafe fn from_raw(ptr: NonNull<Header>) -> Self {
         Task {
             raw: RawTask::from_raw(ptr),
@@ -47,14 +60,24 @@ impl<T> Task<T> {
         }
     }
 
+    /// Consume this task handle, returning a raw pointer to its task header.
+    ///
+    /// This function is akin to [`Box::into_raw`].
+    ///
+    /// The reference held by this task is transferred over to the pointer.
+    /// The caller is responsible for managing the memory of this task handle.
+    /// The easiest way to do this is by using [`Task::from_raw`] to convert
+    /// the pointer back to its original task representation.
     pub fn into_raw(self) -> NonNull<Header> {
         self.raw.into_raw()
     }
 
+    /// Get the raw type-erased task pointer.
     pub fn as_raw(self) -> NonNull<Header> {
         self.raw.as_raw()
     }
 
+    /// Get the adapter data associated with the provided raw task.
     pub fn get_adapter(raw: NonNull<Header>) -> NonNull<T> {
         unsafe { RawTask::get_adapter(raw) }
     }
