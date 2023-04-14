@@ -15,7 +15,7 @@ use crate::utils::linked_list;
 type Task = task::Task<Data>;
 type TaskList = linked_list::List<Task>;
 
-pub use task::Handle;
+pub use task::{DropHandle, Handle};
 
 /// Monitor trait to monitor the progress of a task.
 pub trait Monitor {

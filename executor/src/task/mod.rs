@@ -8,4 +8,4 @@ mod raw;
 mod state;
 mod vtable;
 
-pub use self::api::{Adapter, Handle, Header, Task};
+pub use self::api::{Adapter, DropHandle, Handle, Header, Task};
