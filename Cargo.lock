@@ -1073,6 +1073,7 @@ name = "papr"
 version = "0.1.0"
 dependencies = [
  "env_logger",
+ "executor",
  "glib-build-tools",
  "gtk4",
  "itertools",

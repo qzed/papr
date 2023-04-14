@@ -2,8 +2,9 @@ use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
-use std::sync::atomic::AtomicBool;
-use std::sync::{mpsc, Arc};
+use std::sync::Arc;
+
+use executor::{DropHandle as Handle, Executor};
 
 use gtk::traits::{SnapshotExt, WidgetExt};
 use gtk::{gdk, glib};
@@ -134,8 +135,6 @@ impl Canvas {
         //   The relation between page coordinates and canvas coordinates is
         //   defined by the page offset in the canvas.
 
-        self.manager.render_pre();
-
         // transformation matrix: canvas to viewport
         let m_ctv = {
             let m_scale = Similarity2::from_scaling(vp.scale);
@@ -197,46 +196,33 @@ impl Canvas {
 
 pub struct TileManager<S> {
     scheme: S,
-    cached: HashMap<usize, HashMap<TileId, Tile>>,
-    pending: HashMap<usize, HashSet<TileId>>,
+    executor: Executor,
+    monitor: TaskMonitor,
+    renderer: Arc<TileRenderer>,
+
     visible: HashSet<usize>,
-    queue: RenderQueue,
+    cached: HashMap<usize, HashMap<TileId, Tile>>,
+    pending: HashMap<usize, HashMap<TileId, Option<Handle<Tile>>>>,
 }
 
 impl<S: TilingScheme> TileManager<S> {
     pub fn new(scheme: S, notif: glib::Sender<()>) -> Self {
-        let (queue, mut thread) = RenderQueue::new(notif);
+        let executor = Executor::new(1);
+        let renderer = Arc::new(TileRenderer::new());
+        let monitor = TaskMonitor::new(notif);
+
+        let visible = HashSet::new();
         let cached = HashMap::new();
         let pending = HashMap::new();
-        let visible = HashSet::new();
-
-        // run the render thread
-        std::thread::spawn(move || thread.run());
 
         Self {
             scheme,
+            executor,
+            monitor,
+            renderer,
+            visible,
             cached,
             pending,
-            visible,
-            queue,
-        }
-    }
-
-    pub fn render_pre(&mut self) {
-        // get fresh tiles
-        while let Some(tile) = self.queue.next() {
-            // remove from pending
-            let pending = self.pending.get_mut(&tile.id.page).unwrap();
-            pending.remove(&tile.id);
-            if pending.is_empty() {
-                self.pending.remove(&tile.id.page);
-            }
-
-            // add to cached
-            self.cached
-                .entry(tile.id.page)
-                .or_insert_with(HashMap::new)
-                .insert(tile.id, tile);
         }
     }
 
@@ -267,30 +253,71 @@ impl<S: TilingScheme> TileManager<S> {
 
         // get cached tiles for page
         let cached = self.cached.entry(i_page).or_insert_with(HashMap::new);
-        let pending = self.pending.entry(i_page).or_insert_with(HashSet::new);
+        let pending = self.pending.entry(i_page).or_insert_with(HashMap::new);
 
         // request new tiles if not cached or pending
         for (ix, iy) in tiles.rect.range_iter() {
             let tile_id = TileId::new(i_page, ix, iy, tiles.z);
 
-            if !cached.contains_key(&tile_id) && !pending.contains(&tile_id) {
-                pending.insert(tile_id);
-
+            if !cached.contains_key(&tile_id) && !pending.contains_key(&tile_id) {
                 let (page_size, tile_rect) =
                     self.scheme
                         .render_rect(&page_rect_pt.size, &page_rect.size, &tile_id);
 
-                self.queue
-                    .submit(page.clone(), page_size, tile_rect, tile_id);
+                let monitor = self.monitor.clone();
+                let renderer = self.renderer.clone();
+                let page = page.clone();
+
+                let handle = self.executor.submit_with(monitor, move || {
+                    renderer
+                        .render_tile(&page, &page_size, &tile_rect, &tile_id)
+                        .unwrap()
+                });
+                let handle = handle.cancel_on_drop();
+
+                pending.insert(tile_id, Some(handle));
             }
         }
 
-        // find unused/occluded tiles and remove them
+        // move newly rendered tiles to cached map
+        for (id, task) in &mut *pending {
+            if task.is_some() && task.as_ref().unwrap().is_finished() {
+                let tile = std::mem::take(task).unwrap().join();
+                cached.insert(*id, tile);
+            }
+        }
+
+        // find unused/occluded pending tiles and remove them
+        pending.retain(|id, task| {
+            // remove any tasks that have already been completed
+            if task.is_none() {
+                return false;
+            }
+
+            // stop loading anything that is not on the current zoom level
+            if id.z != tiles.z {
+                return false;
+            }
+
+            // stop loading tiles if not in view
+            let tile_rect = self.scheme.screen_rect(vp, page_rect, id);
+            let tile_rect = tile_rect.translate(&page_rect.offs.coords);
+            let vpz_rect = Rect::new(point![0.0, 0.0], vp.r.size);
+
+            if !tile_rect.intersects(&vpz_rect) {
+                return false;
+            }
+
+            // otherwise: keep loading
+            true
+        });
+
+        // find unused/occluded cached tiles and remove them
         let cached_keys: HashSet<_> = cached.keys().cloned().collect();
 
-        cached.retain(|_, t| {
+        cached.retain(|id, _tile| {
             // compute tile bounds
-            let tile_rect = self.scheme.screen_rect(vp, page_rect, &t.id);
+            let tile_rect = self.scheme.screen_rect(vp, page_rect, &id);
             let tile_rect = tile_rect.bounds().round_outwards();
             let tile_rect_screen = tile_rect.translate(&page_rect.offs.coords);
 
@@ -301,7 +328,7 @@ impl<S: TilingScheme> TileManager<S> {
             }
 
             // if the tile is on the current level: keep it
-            if t.id.z == tiles.z {
+            if id.z == tiles.z {
                 return true;
             }
 
@@ -321,27 +348,6 @@ impl<S: TilingScheme> TileManager<S> {
             !tiles_req
                 .range_iter()
                 .all(|(x, y)| cached_keys.contains(&TileId::new(i_page, x, y, tiles.z)))
-        });
-
-        pending.retain(|id| {
-            // stop loading anything that is not on the current zoom level
-            if id.z != tiles.z {
-                self.queue.cancel(id);
-                return false;
-            }
-
-            // stop loading tiles if not in view
-            let tile_rect = self.scheme.screen_rect(vp, page_rect, id);
-            let tile_rect = tile_rect.translate(&page_rect.offs.coords);
-            let vpz_rect = Rect::new(point![0.0, 0.0], vp.r.size);
-
-            if !tile_rect.intersects(&vpz_rect) {
-                self.queue.cancel(id);
-                return false;
-            }
-
-            // otherwise: keep loading
-            true
         });
 
         // build ordered render list
@@ -380,6 +386,23 @@ impl<S: TilingScheme> TileManager<S> {
                 (tile_rect, tile)
             })
             .collect()
+    }
+}
+
+#[derive(Clone)]
+struct TaskMonitor {
+    sender: glib::Sender<()>,
+}
+
+impl TaskMonitor {
+    fn new(sender: glib::Sender<()>) -> Self {
+        Self { sender }
+    }
+}
+
+impl executor::Monitor for TaskMonitor {
+    fn on_complete(&self) {
+        self.sender.send(()).unwrap()
     }
 }
 
@@ -444,125 +467,5 @@ impl TileRenderer {
 
         // create tile
         Ok(Tile::new(*id, texture))
-    }
-}
-
-// TODO:
-// - we should remove the task from the queue once it starts being rendered
-// - add support for canceling tasks and cancel task when out of view
-
-pub struct RenderQueue {
-    sender: mpsc::Sender<RenderTask>,
-    receiver: mpsc::Receiver<Tile>,
-    pending: HashMap<TileId, Arc<AtomicBool>>,
-}
-
-pub struct RenderThread {
-    renderer: TileRenderer,
-    receiver: mpsc::Receiver<RenderTask>,
-    sender: mpsc::Sender<Tile>,
-    notif: glib::Sender<()>,
-}
-
-struct RenderTask {
-    page: Page,
-    page_size: Vector2<i64>,
-    tile_rect: Rect<i64>,
-    tile_id: TileId,
-    canceled: Arc<AtomicBool>,
-}
-
-impl RenderQueue {
-    pub fn new(notif: glib::Sender<()>) -> (RenderQueue, RenderThread) {
-        let (task_sender, task_receiver) = mpsc::channel();
-        let (tile_sender, tile_receiver) = mpsc::channel();
-        let renderer = TileRenderer::new();
-
-        let queue = RenderQueue {
-            sender: task_sender,
-            receiver: tile_receiver,
-            pending: HashMap::new(),
-        };
-
-        let thread = RenderThread {
-            renderer,
-            receiver: task_receiver,
-            sender: tile_sender,
-            notif,
-        };
-
-        (queue, thread)
-    }
-
-    pub fn is_pending(&self, tile_id: &TileId) -> bool {
-        self.pending.contains_key(tile_id)
-    }
-
-    pub fn submit(
-        &mut self,
-        page: Page,
-        page_size: Vector2<i64>,
-        tile_rect: Rect<i64>,
-        tile_id: TileId,
-    ) {
-        if self.is_pending(&tile_id) {
-            return;
-        }
-
-        let canceled = Arc::new(AtomicBool::new(false));
-
-        let task = RenderTask {
-            page,
-            page_size,
-            tile_rect,
-            tile_id,
-            canceled: canceled.clone(),
-        };
-
-        self.pending.insert(tile_id, canceled);
-        self.sender.send(task).unwrap();
-    }
-
-    pub fn cancel(&mut self, tile_id: &TileId) {
-        if let Some(flag) = self.pending.remove(tile_id) {
-            flag.store(true, std::sync::atomic::Ordering::Release)
-        }
-    }
-
-    pub fn next(&mut self) -> Option<Tile> {
-        match self.receiver.try_recv() {
-            Ok(tile) => {
-                self.pending.remove(&tile.id);
-                Some(tile)
-            }
-            Err(mpsc::TryRecvError::Empty) => None,
-            Err(mpsc::TryRecvError::Disconnected) => panic!(),
-        }
-    }
-}
-
-impl RenderThread {
-    pub fn run(&mut self) {
-        while let Ok(task) = self.receiver.recv() {
-            if task.canceled.load(std::sync::atomic::Ordering::Acquire) {
-                continue;
-            }
-
-            log::trace!(
-                "rendering tile: ({}, {}, {}, {})",
-                task.tile_id.page,
-                task.tile_id.x,
-                task.tile_id.y,
-                task.tile_id.z
-            );
-
-            let tile = self
-                .renderer
-                .render_tile(&task.page, &task.page_size, &task.tile_rect, &task.tile_id)
-                .unwrap();
-
-            self.sender.send(tile).unwrap();
-            self.notif.send(()).unwrap();
-        }
     }
 }
