@@ -127,10 +127,7 @@ impl ExecutorStruct {
         while self.running.load(Ordering::Acquire) {
             match queue.pop_back() {
                 Some(task) => return Some(task),
-                None => {
-                    queue = self.signal.wait(queue).unwrap();
-                    continue;
-                }
+                None => queue = self.signal.wait(queue).unwrap(),
             }
         }
 
