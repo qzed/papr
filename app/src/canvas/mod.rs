@@ -13,7 +13,7 @@ use gtk::{Snapshot, Widget};
 use na::{point, vector, Similarity2, Translation2, Vector2};
 use nalgebra as na;
 
-use pdfium::bitmap::{Bitmap, BitmapFormat};
+use pdfium::bitmap::{Bitmap, BitmapFormat, Color};
 use pdfium::doc::{Page, PageRenderLayout, PageRotation, RenderFlags};
 
 use crate::pdf::Document;
@@ -64,39 +64,22 @@ impl Canvas {
         // pre-render some fallback images
         let mut fallbacks = Vec::with_capacity(pages.len());
         for page in &pages {
-            let lib = page.library().clone();
             let size = page.size();
 
-            let width: u32 = 512;
+            // compute page render size and rectangle in pixels
+            let width: i64 = 256;
             let scale = width as f32 / size.x;
-            let height = (scale * size.y).round() as u32;
+            let height = (scale * size.y).round() as i64;
 
-            let format = BitmapFormat::Bgra;
-            let mut bmp = Bitmap::uninitialized(lib, width, height, format).unwrap();
-            bmp.fill_rect(0, 0, width, height, pdfium::bitmap::Color::WHITE);
+            let page_size = vector![width, height];
+            let rect = Rect::new(point![0, 0], page_size);
 
-            // set up render layout
-            let layout = PageRenderLayout {
-                start: point![0, 0],
-                size: vector![width as i32, height as i32],
-                rotate: PageRotation::None,
-            };
+            // render page to GDK texture
+            let flags = RenderFlags::LcdText;
+            let background = Color::WHITE;
+            let tex = render_page_rect_gdk(page, &page_size, &rect, background, flags).unwrap();
 
-            // render page to bitmap
-            let flags = RenderFlags::LcdText | RenderFlags::Annotations;
-            page.render(&mut bmp, &layout, flags).unwrap();
-
-            // create GTK/GDK texture
-            let bytes = glib::Bytes::from(bmp.buf());
-            let texture = gdk::MemoryTexture::new(
-                width as _,
-                height as _,
-                gdk::MemoryFormat::B8g8r8a8,
-                &bytes,
-                bmp.stride() as _,
-            );
-
-            fallbacks.push(texture);
+            fallbacks.push(tex);
         }
 
         Self {
@@ -420,52 +403,76 @@ impl TileRenderer {
         tile_rect: &Rect<i64>,
         id: &TileId,
     ) -> pdfium::Result<Tile> {
-        // allocate tile bitmap buffer
-        let stride = tile_rect.size.x as usize * 4;
-        let mut buffer = vec![0; stride * tile_rect.size.y as usize];
+        let flags = RenderFlags::LcdText | RenderFlags::Annotations;
+        let background = Color::WHITE;
 
-        // render to tile
-        {
-            // wrap buffer in bitmap
-            let mut bmp = Bitmap::from_buf(
-                page.library().clone(),
-                tile_rect.size.x as _,
-                tile_rect.size.y as _,
-                BitmapFormat::Bgra,
-                &mut buffer[..],
-                stride as _,
-            )?;
-            bmp.fill_rect(
-                0,
-                0,
-                tile_rect.size.x as _,
-                tile_rect.size.y as _,
-                pdfium::bitmap::Color::WHITE,
-            );
-
-            // set up render layout
-            let layout = PageRenderLayout {
-                start: na::convert::<_, Vector2<i32>>(-tile_rect.offs.coords).into(),
-                size: na::convert(*page_size),
-                rotate: PageRotation::None,
-            };
-
-            // render page to bitmap
-            let flags = RenderFlags::LcdText | RenderFlags::Annotations;
-            page.render(&mut bmp, &layout, flags)?;
-        }
-
-        // create GTK/GDK texture
-        let bytes = glib::Bytes::from_owned(buffer);
-        let texture = gdk::MemoryTexture::new(
-            tile_rect.size.x as _,
-            tile_rect.size.y as _,
-            gdk::MemoryFormat::B8g8r8a8,
-            &bytes,
-            stride as _,
-        );
+        // render page to GDK texture
+        let tex = render_page_rect_gdk(page, page_size, tile_rect, background, flags)?;
 
         // create tile
-        Ok(Tile::new(*id, texture))
+        Ok(Tile::new(*id, tex))
     }
+}
+
+fn render_page_rect(
+    page: &Page,
+    page_size: &Vector2<i64>,
+    rect: &Rect<i64>,
+    background: Color,
+    flags: RenderFlags,
+) -> pdfium::Result<Box<[u8]>> {
+    // allocate tile bitmap buffer
+    let stride = rect.size.x as usize * 4;
+    let mut buffer = vec![0; stride * rect.size.y as usize];
+
+    // wrap buffer in bitmap
+    let mut bmp = Bitmap::from_buf(
+        page.library().clone(),
+        rect.size.x as _,
+        rect.size.y as _,
+        BitmapFormat::Bgra,
+        &mut buffer[..],
+        stride as _,
+    )?;
+
+    // clear bitmap with background color
+    bmp.fill_rect(0, 0, rect.size.x as _, rect.size.y as _, background);
+
+    // set up render layout
+    let layout = PageRenderLayout {
+        start: na::convert::<_, Vector2<i32>>(-rect.offs.coords).into(),
+        size: na::convert(*page_size),
+        rotate: PageRotation::None,
+    };
+
+    // render page to bitmap
+    page.render(&mut bmp, &layout, flags)?;
+
+    // drop the wrapping bitmap and return the buffer
+    drop(bmp);
+    Ok(buffer.into_boxed_slice())
+}
+
+fn render_page_rect_gdk(
+    page: &Page,
+    page_size: &Vector2<i64>,
+    rect: &Rect<i64>,
+    background: Color,
+    flags: RenderFlags,
+) -> pdfium::Result<gdk::MemoryTexture> {
+    // render page to byte buffer
+    let buf = render_page_rect(page, page_size, rect, background, flags)?;
+
+    // create GTK/GDK texture
+    let stride = rect.size.x as usize * 4;
+    let bytes = glib::Bytes::from_owned(buf);
+    let texture = gdk::MemoryTexture::new(
+        rect.size.x as _,
+        rect.size.y as _,
+        gdk::MemoryFormat::B8g8r8a8,
+        &bytes,
+        stride as _,
+    );
+
+    Ok(texture)
 }
