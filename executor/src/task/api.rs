@@ -154,6 +154,10 @@ impl<R> Handle<R> {
     pub fn cancel_on_drop(self) -> DropHandle<R> {
         DropHandle::new(self.raw)
     }
+
+    pub fn as_raw_task(&self) -> NonNull<Header> {
+        self.raw.as_raw()
+    }
 }
 
 impl<R: Send> Handle<R> {
@@ -224,6 +228,10 @@ impl<R> DropHandle<R> {
         } else {
             Err(self)
         }
+    }
+
+    pub fn as_raw_task(&self) -> NonNull<Header> {
+        self.raw.as_raw()
     }
 }
 
