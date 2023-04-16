@@ -242,31 +242,36 @@ impl<S: TilingScheme> TileManager<S> {
         for (ix, iy) in tiles.rect.range_iter() {
             let tile_id = TileId::new(i_page, ix, iy, tiles.z);
 
-            if !cached.contains_key(&tile_id) && !pending.contains_key(&tile_id) {
-                let (page_size, tile_rect) =
-                    self.scheme
-                        .render_rect(&page_rect_pt.size, &page_rect.size, &tile_id);
-
-                let monitor = self.monitor.clone();
-                let renderer = self.renderer.clone();
-                let page = page.clone();
-
-                let handle = self.executor.submit_with(monitor, move || {
-                    renderer
-                        .render_tile(&page, &page_size, &tile_rect, &tile_id)
-                        .unwrap()
-                });
-                let handle = handle.cancel_on_drop();
-
-                pending.insert(tile_id, Some(handle));
+            // check if we already have the tile (or requested it)
+            if cached.contains_key(&tile_id) || pending.contains_key(&tile_id) {
+                continue;
             }
+
+            // compute page size and tile bounds
+            let (page_size, tile_rect) =
+                self.scheme
+                    .render_rect(&page_rect_pt.size, &page_rect.size, &tile_id);
+
+            // offload rendering to dedicated thread
+            let monitor = self.monitor.clone();
+            let renderer = self.renderer.clone();
+            let page = page.clone();
+
+            let handle = self.executor.submit_with(monitor, move || {
+                renderer
+                    .render_tile(&page, &page_size, &tile_rect, &tile_id)
+                    .unwrap()
+            });
+            let handle = handle.cancel_on_drop();
+
+            // store handle to the render task
+            pending.insert(tile_id, Some(handle));
         }
 
         // move newly rendered tiles to cached map
         for (id, task) in &mut *pending {
             if task.is_some() && task.as_ref().unwrap().is_finished() {
-                let tile = std::mem::take(task).unwrap().join();
-                cached.insert(*id, tile);
+                cached.insert(*id, std::mem::take(task).unwrap().join());
             }
         }
 
