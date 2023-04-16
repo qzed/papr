@@ -213,7 +213,7 @@ mod test {
     use super::*;
 
     #[test]
-    fn basic_thread_pool() {
+    fn basic() {
         use std::thread;
         use std::time::Duration;
 
