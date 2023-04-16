@@ -222,7 +222,7 @@ impl<S: TilingScheme> TileManager<S> {
 
     pub fn render_post(&mut self) {
         // remove out-of-view pages from cache
-        self.cache.retain(|page, _entry| self.visible.contains(page));
+        self.cache.retain(|page, _| self.visible.contains(page));
         self.visible.clear();
     }
 
@@ -281,7 +281,9 @@ impl<S: TilingScheme> TileManager<S> {
         // move newly rendered tiles to cached map
         for (id, task) in &mut entry.pending {
             if task.is_some() && task.as_ref().unwrap().is_finished() {
-                entry.cached.insert(*id, std::mem::take(task).unwrap().join());
+                entry
+                    .cached
+                    .insert(*id, std::mem::take(task).unwrap().join());
             }
         }
 
