@@ -177,6 +177,20 @@ impl Canvas {
     }
 }
 
+struct TileCache {
+    cached: HashMap<TileId, Tile>,
+    pending: HashMap<TileId, Option<Handle<Tile>>>,
+}
+
+impl TileCache {
+    fn empty() -> Self {
+        Self {
+            cached: HashMap::new(),
+            pending: HashMap::new(),
+        }
+    }
+}
+
 pub struct TileManager<S> {
     scheme: S,
     executor: Executor,
@@ -184,8 +198,7 @@ pub struct TileManager<S> {
     renderer: Arc<TileRenderer>,
 
     visible: HashSet<usize>,
-    cached: HashMap<usize, HashMap<TileId, Tile>>,
-    pending: HashMap<usize, HashMap<TileId, Option<Handle<Tile>>>>,
+    cache: HashMap<usize, TileCache>,
 }
 
 impl<S: TilingScheme> TileManager<S> {
@@ -195,8 +208,7 @@ impl<S: TilingScheme> TileManager<S> {
         let monitor = TaskMonitor::new(notif);
 
         let visible = HashSet::new();
-        let cached = HashMap::new();
-        let pending = HashMap::new();
+        let cache = HashMap::new();
 
         Self {
             scheme,
@@ -204,14 +216,13 @@ impl<S: TilingScheme> TileManager<S> {
             monitor,
             renderer,
             visible,
-            cached,
-            pending,
+            cache,
         }
     }
 
     pub fn render_post(&mut self) {
         // remove out-of-view pages from cache
-        self.cached.retain(|page, _| self.visible.contains(page));
+        self.cache.retain(|page, _entry| self.visible.contains(page));
         self.visible.clear();
     }
 
@@ -231,19 +242,18 @@ impl<S: TilingScheme> TileManager<S> {
         // tile bounds
         let tiles = self.scheme.tiles(vp, page_rect, &visible_page);
 
+        // get cached tiles for this page
+        let entry = self.cache.entry(i_page).or_insert_with(TileCache::empty);
+
         // mark page as visible
         self.visible.insert(i_page);
-
-        // get cached tiles for page
-        let cached = self.cached.entry(i_page).or_insert_with(HashMap::new);
-        let pending = self.pending.entry(i_page).or_insert_with(HashMap::new);
 
         // request new tiles if not cached or pending
         for (ix, iy) in tiles.rect.range_iter() {
             let tile_id = TileId::new(i_page, ix, iy, tiles.z);
 
             // check if we already have the tile (or requested it)
-            if cached.contains_key(&tile_id) || pending.contains_key(&tile_id) {
+            if entry.cached.contains_key(&tile_id) || entry.pending.contains_key(&tile_id) {
                 continue;
             }
 
@@ -265,18 +275,18 @@ impl<S: TilingScheme> TileManager<S> {
             let handle = handle.cancel_on_drop();
 
             // store handle to the render task
-            pending.insert(tile_id, Some(handle));
+            entry.pending.insert(tile_id, Some(handle));
         }
 
         // move newly rendered tiles to cached map
-        for (id, task) in &mut *pending {
+        for (id, task) in &mut entry.pending {
             if task.is_some() && task.as_ref().unwrap().is_finished() {
-                cached.insert(*id, std::mem::take(task).unwrap().join());
+                entry.cached.insert(*id, std::mem::take(task).unwrap().join());
             }
         }
 
         // find unused/occluded pending tiles and remove them
-        pending.retain(|id, task| {
+        entry.pending.retain(|id, task| {
             // remove any tasks that have already been completed
             if task.is_none() {
                 return false;
@@ -301,9 +311,9 @@ impl<S: TilingScheme> TileManager<S> {
         });
 
         // find unused/occluded cached tiles and remove them
-        let cached_keys: HashSet<_> = cached.keys().cloned().collect();
+        let cached_keys: HashSet<_> = entry.cached.keys().cloned().collect();
 
-        cached.retain(|id, _tile| {
+        entry.cached.retain(|id, _tile| {
             // compute tile bounds
             let tile_rect = self.scheme.screen_rect(vp, page_rect, &id);
             let tile_rect = tile_rect.bounds().round_outwards();
@@ -339,7 +349,7 @@ impl<S: TilingScheme> TileManager<S> {
         });
 
         // build ordered render list
-        let mut rlist: Vec<_> = cached.values().collect();
+        let mut rlist: Vec<_> = entry.cached.values().collect();
 
         rlist.sort_unstable_by(|a, b| {
             // sort by z-level:
