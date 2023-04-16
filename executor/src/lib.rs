@@ -1,5 +1,5 @@
+//! Thread-pool-based task executors and utilities for building them.
+
+pub mod exec;
 pub mod task;
 pub mod utils;
-
-mod exec;
-pub use exec::{DropHandle, Executor, Handle, Monitor};

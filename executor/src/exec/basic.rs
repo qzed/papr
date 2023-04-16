@@ -1,8 +1,4 @@
-//! Work-queue with cancellable work items, inspired by the Linux kernel
-//! worqueue but adapted for this project.
-//!
-//! The idea of this queue is to provide a mechanism with time complexity of
-//! O(1) for push, pop, and cancel operations.
+//! A basic thread-pool based executor.
 
 use std::ptr::NonNull;
 use std::sync::atomic::AtomicBool;
@@ -12,23 +8,12 @@ use std::thread::JoinHandle;
 use crate::task;
 use crate::utils::linked_list;
 
-type Task = task::Task<Data>;
-type TaskList = linked_list::List<Task>;
+use super::Monitor;
 
 pub use task::{DropHandle, Handle};
 
-/// Monitor trait to monitor the progress of a task.
-pub trait Monitor {
-    /// Executed when the task starts executing its closure.
-    fn on_execute(&self) {}
-
-    /// Executed when the task finished executing its closure, either
-    /// successfully or via a panic.
-    fn on_complete(&self) {}
-
-    /// Executed when the task has been canceled successfully.
-    fn on_canceled(&self) {}
-}
+type Task = task::Task<Data>;
+type TaskList = linked_list::List<Task>;
 
 /// A basic thread-pool executor with a fixed number of threads and cancellable
 /// tasks.
@@ -204,8 +189,6 @@ where
         self.monitor.on_execute();
     }
 }
-
-impl Monitor for () {}
 
 // Safety: Tasks are always pinned.
 unsafe impl linked_list::Link for Task {

@@ -3,7 +3,7 @@ use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
-use executor::{DropHandle as Handle, Executor};
+use executor::exec::basic::{DropHandle as Handle, Executor};
 
 use gtk::traits::{SnapshotExt, WidgetExt};
 use gtk::{gdk, glib};
@@ -398,7 +398,7 @@ impl TaskMonitor {
     }
 }
 
-impl executor::Monitor for TaskMonitor {
+impl executor::exec::Monitor for TaskMonitor {
     fn on_complete(&self) {
         self.sender.send(()).unwrap()
     }
