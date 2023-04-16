@@ -2,3 +2,4 @@
 
 pub mod linked_list;
 pub mod ptr;
+pub mod sync;

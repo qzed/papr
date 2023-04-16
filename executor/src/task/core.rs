@@ -1,8 +1,9 @@
 use std::any::Any;
 use std::cell::UnsafeCell;
 
+use crate::utils::sync::Completion;
+
 use super::api::Adapter;
-use super::completion::Completion;
 use super::state::State;
 use super::vtable;
 use super::vtable::Vtable;

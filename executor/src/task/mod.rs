@@ -1,7 +1,6 @@
 //! A generic executable task implementation.
 
 mod api;
-mod completion;
 mod core;
 mod harness;
 mod raw;
