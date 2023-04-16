@@ -151,10 +151,14 @@ impl<R> Handle<R> {
         }
     }
 
+    /// Transform into a handle that cancels the task when dropped.
     pub fn cancel_on_drop(self) -> DropHandle<R> {
         DropHandle::new(self.raw)
     }
 
+    /// Return a pointer to the raw underlying task header.
+    ///
+    /// To be used with care.
     pub fn as_raw_task(&self) -> NonNull<Header> {
         self.raw.as_raw()
     }
@@ -170,7 +174,8 @@ impl<R: Send> Handle<R> {
     ///
     /// # Panics
     ///
-    /// This function will panic if the associated task function panicked.
+    /// This function will panic if the associated task function panicked
+    /// during its execution.
     pub fn join(self) -> R {
         // Wait for completion. This will return immediately if the task has
         // already been completed.
@@ -191,7 +196,8 @@ impl<R: Send> Handle<R> {
     ///
     /// # Panics
     ///
-    /// This function will panic if the associated task function panicked.
+    /// This function will panic if the associated task function panicked
+    /// during its execution.
     pub fn join_timeout(self, duration: Duration) -> Result<R, Self> {
         // Wait for completion. This will return immediately if the task has
         // already been completed.
@@ -230,6 +236,9 @@ impl<R> DropHandle<R> {
         }
     }
 
+    /// Return a pointer to the raw underlying task header.
+    ///
+    /// To be used with care.
     pub fn as_raw_task(&self) -> NonNull<Header> {
         self.raw.as_raw()
     }
