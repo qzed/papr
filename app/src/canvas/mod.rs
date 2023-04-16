@@ -2,7 +2,6 @@ use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
-use std::sync::Arc;
 
 use executor::{DropHandle as Handle, Executor};
 
@@ -195,7 +194,6 @@ pub struct TileManager<S> {
     scheme: S,
     executor: Executor,
     monitor: TaskMonitor,
-    renderer: Arc<TileRenderer>,
 
     visible: HashSet<usize>,
     cache: HashMap<usize, TileCache>,
@@ -204,7 +202,6 @@ pub struct TileManager<S> {
 impl<S: TilingScheme> TileManager<S> {
     pub fn new(scheme: S, notif: glib::Sender<()>) -> Self {
         let executor = Executor::new(1);
-        let renderer = Arc::new(TileRenderer::new());
         let monitor = TaskMonitor::new(notif);
 
         let visible = HashSet::new();
@@ -214,7 +211,6 @@ impl<S: TilingScheme> TileManager<S> {
             scheme,
             executor,
             monitor,
-            renderer,
             visible,
             cache,
         }
@@ -258,19 +254,21 @@ impl<S: TilingScheme> TileManager<S> {
             }
 
             // compute page size and tile bounds
-            let (page_size, tile_rect) =
+            let (page_size, rect) =
                 self.scheme
                     .render_rect(&page_rect_pt.size, &page_rect.size, &tile_id);
 
             // offload rendering to dedicated thread
             let monitor = self.monitor.clone();
-            let renderer = self.renderer.clone();
             let page = page.clone();
 
             let handle = self.executor.submit_with(monitor, move || {
-                renderer
-                    .render_tile(&page, &page_size, &tile_rect, &tile_id)
-                    .unwrap()
+                let flags = RenderFlags::LcdText | RenderFlags::Annotations;
+                let color = Color::WHITE;
+
+                let texture = render_page_rect_gdk(&page, &page_size, &rect, color, flags).unwrap();
+
+                Tile::new(tile_id, texture)
             });
             let handle = handle.cancel_on_drop();
 
@@ -403,31 +401,6 @@ impl TaskMonitor {
 impl executor::Monitor for TaskMonitor {
     fn on_complete(&self) {
         self.sender.send(()).unwrap()
-    }
-}
-
-struct TileRenderer;
-
-impl TileRenderer {
-    fn new() -> Self {
-        Self
-    }
-
-    fn render_tile(
-        &self,
-        page: &Page,
-        page_size: &Vector2<i64>,
-        tile_rect: &Rect<i64>,
-        id: &TileId,
-    ) -> pdfium::Result<Tile> {
-        let flags = RenderFlags::LcdText | RenderFlags::Annotations;
-        let background = Color::WHITE;
-
-        // render page to GDK texture
-        let tex = render_page_rect_gdk(page, page_size, tile_rect, background, flags)?;
-
-        // create tile
-        Ok(Tile::new(*id, tex))
     }
 }
 
