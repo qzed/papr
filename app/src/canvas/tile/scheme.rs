@@ -6,8 +6,6 @@ use crate::types::{Bounds, Rect, Viewport};
 use super::{TileId, TileRect};
 
 pub trait TilingScheme {
-    fn tile_size(&self) -> Vector2<i64>;
-
     fn tiles(&self, vp: &Viewport, page: &Rect<f64>, rect: &Bounds<f64>) -> TileRect;
 
     /// Area covered by this tile in pixels adjusted for the specified z-level,
@@ -34,11 +32,6 @@ impl ExactLevelTilingScheme {
 }
 
 impl TilingScheme for ExactLevelTilingScheme {
-    #[inline]
-    fn tile_size(&self) -> Vector2<i64> {
-        self.tile_size
-    }
-
     #[inline]
     fn tiles(&self, _vp: &Viewport, page: &Rect<f64>, rect: &Bounds<f64>) -> TileRect {
         let rect = rect.cast_unchecked().tiled(&self.tile_size);
@@ -84,11 +77,6 @@ impl QuadTreeTilingScheme {
 }
 
 impl TilingScheme for QuadTreeTilingScheme {
-    #[inline]
-    fn tile_size(&self) -> Vector2<i64> {
-        self.tile_size
-    }
-
     #[inline]
     fn tiles(&self, vp: &Viewport, _page: &Rect<f64>, rect: &Bounds<f64>) -> TileRect {
         let z = vp.scale.log2().ceil();
