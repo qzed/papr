@@ -10,6 +10,8 @@ use gtk::{Snapshot, Widget};
 use na::{point, vector, Similarity2, Translation2, Vector2};
 use nalgebra as na;
 
+use num_enum::{IntoPrimitive, TryFromPrimitive};
+
 use pdfium::bitmap::{Bitmap, BitmapFormat, Color};
 use pdfium::doc::{Page, PageRenderLayout, PageRotation, RenderFlags};
 
@@ -389,11 +391,12 @@ impl<S: TilingScheme> TileManager<S> {
 type Executor = executor::exec::priority::Executor<TaskPriority>;
 type Handle<R> = executor::exec::priority::DropHandle<TaskPriority, R>;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, IntoPrimitive, TryFromPrimitive)]
 enum TaskPriority {
-    Low,
-    Medium,
-    High,
+    Low = 0,
+    Medium = 1,
+    High = 2,
 }
 
 impl executor::exec::priority::Priority for TaskPriority {
@@ -402,20 +405,11 @@ impl executor::exec::priority::Priority for TaskPriority {
     }
 
     fn from_value(value: u8) -> Option<Self> {
-        match value {
-            0 => Some(Self::Low),
-            1 => Some(Self::Medium),
-            2 => Some(Self::High),
-            _ => None,
-        }
+        Self::try_from_primitive(value).ok()
     }
 
     fn as_value(&self) -> u8 {
-        match self {
-            Self::Low => 0,
-            Self::Medium => 1,
-            Self::High => 2,
-        }
+        *self as _
     }
 }
 
