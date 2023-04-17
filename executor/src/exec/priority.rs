@@ -236,6 +236,11 @@ impl<P: Priority, R> Handle<P, R> {
         // Update the stored task priority
         let old_priority = data.priority.swap(priority, Ordering::SeqCst);
 
+        // If priorities are the same, do nothing
+        if old_priority == priority {
+            return;
+        }
+
         // Try to remove the task from the queue. This may return None in case
         // the task is executing or has been completed
         let task = unsafe { queues[old_priority as usize].remove(task) };
@@ -339,6 +344,11 @@ impl<P: Priority, R> DropHandle<P, R> {
 
         // Update the stored task priority
         let old_priority = data.priority.swap(priority, Ordering::SeqCst);
+
+        // If priorities are the same, do nothing
+        if old_priority == priority {
+            return;
+        }
 
         // Try to remove the task from the queue. This may return None in case
         // the task is executing or has been completed
