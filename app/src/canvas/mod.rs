@@ -3,8 +3,6 @@ use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
-use executor::exec::basic::{DropHandle as Handle, Executor};
-
 use gtk::traits::{SnapshotExt, WidgetExt};
 use gtk::{gdk, glib};
 use gtk::{Snapshot, Widget};
@@ -261,8 +259,9 @@ impl<S: TilingScheme> TileManager<S> {
             // offload rendering to dedicated thread
             let monitor = self.monitor.clone();
             let page = page.clone();
+            let priority = TaskPriority::Medium;
 
-            let handle = self.executor.submit_with(monitor, move || {
+            let handle = self.executor.submit_with(monitor, priority, move || {
                 let flags = RenderFlags::LcdText | RenderFlags::Annotations;
                 let color = Color::WHITE;
 
@@ -384,6 +383,39 @@ impl<S: TilingScheme> TileManager<S> {
                 (tile_rect, tile)
             })
             .collect()
+    }
+}
+
+type Executor = executor::exec::priority::Executor<TaskPriority>;
+type Handle<R> = executor::exec::priority::DropHandle<TaskPriority, R>;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TaskPriority {
+    Low,
+    Medium,
+    High,
+}
+
+impl executor::exec::priority::Priority for TaskPriority {
+    fn count() -> u8 {
+        3
+    }
+
+    fn from_value(value: u8) -> Option<Self> {
+        match value {
+            0 => Some(Self::Low),
+            1 => Some(Self::Medium),
+            2 => Some(Self::High),
+            _ => None,
+        }
+    }
+
+    fn as_value(&self) -> u8 {
+        match self {
+            Self::Low => 0,
+            Self::Medium => 1,
+            Self::High => 2,
+        }
     }
 }
 
