@@ -16,23 +16,43 @@ use task::{DropHandle as BaseDropHandle, Handle as BaseHandle};
 type Task = task::Task<Data>;
 type TaskList = linked_list::List<Task>;
 
+/// A priority enum.
+///
+/// Priority values are arranged from `0` (lowest, inclusively) to
+/// `Self::count() - 1` (highest).
+pub trait Priority: Sized + Copy {
+    /// The maximum number of supported priorities.
+    fn count() -> u8;
+
+    /// Returns the priority instance for the given value.
+    fn from_value(value: u8) -> Option<Self>;
+
+    /// The priority value of this instance.
+    fn as_value(&self) -> u8;
+}
+
 /// A basic thread-pool executor with a fixed number of threads and cancellable
 /// tasks.
-pub struct Executor {
+pub struct Executor<P> {
     inner: Arc<ExecutorStruct>,
 
     /// Handles to the execution threads
     threads: Vec<JoinHandle<()>>,
+
+    /// Marker for priority.
+    _marker: std::marker::PhantomData<P>,
 }
 
 /// Remote handle for a task.
-pub struct Handle<R> {
+pub struct Handle<P, R> {
     base: BaseHandle<R>,
+    _marker: std::marker::PhantomData<P>,
 }
 
 /// Remote handle for a task, canceling the task when being dropped.
-pub struct DropHandle<R> {
+pub struct DropHandle<P, R> {
     base: BaseDropHandle<R>,
+    _marker: std::marker::PhantomData<P>,
 }
 
 struct ExecutorStruct {
@@ -57,9 +77,9 @@ struct Adapter<M> {
     monitor: M,
 }
 
-impl Executor {
-    pub fn new(num_priority: u8, num_threads: u32) -> Self {
-        let queues = (0..num_priority).map(|_| TaskList::new()).collect();
+impl<P: Priority> Executor<P> {
+    pub fn new(num_threads: u32) -> Self {
+        let queues = (0..P::count()).map(|_| TaskList::new()).collect();
 
         let inner = ExecutorStruct {
             queues: Mutex::new(queues),
@@ -75,10 +95,14 @@ impl Executor {
             })
             .collect();
 
-        Executor { inner, threads }
+        Executor {
+            inner,
+            threads,
+            _marker: std::marker::PhantomData,
+        }
     }
 
-    pub fn submit<F, R>(&self, priority: u8, closure: F) -> Handle<R>
+    pub fn submit<F, R>(&self, priority: P, closure: F) -> Handle<P, R>
     where
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
@@ -86,12 +110,14 @@ impl Executor {
         self.submit_with((), priority, closure)
     }
 
-    pub fn submit_with<F, R, M>(&self, monitor: M, priority: u8, closure: F) -> Handle<R>
+    pub fn submit_with<F, R, M>(&self, monitor: M, priority: P, closure: F) -> Handle<P, R>
     where
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
         M: Monitor + Send + 'static,
     {
+        let priority = priority.as_value();
+
         let adapter = Adapter::new(Arc::downgrade(&self.inner), monitor, priority);
         let (task, handle) = Task::new(adapter, closure);
 
@@ -115,7 +141,7 @@ impl Executor {
     }
 }
 
-impl Drop for Executor {
+impl<P> Drop for Executor<P> {
     fn drop(&mut self) {
         use std::sync::atomic::Ordering;
 
@@ -159,9 +185,12 @@ impl ExecutorStruct {
     }
 }
 
-impl<R> Handle<R> {
+impl<P, R> Handle<P, R> {
     fn new(base: BaseHandle<R>) -> Self {
-        Self { base }
+        Self {
+            base,
+            _marker: std::marker::PhantomData,
+        }
     }
 
     /// Check if the ssociated task has been completed.
@@ -179,13 +208,24 @@ impl<R> Handle<R> {
     }
 
     /// Transform into a handle that cancels the task when dropped.
-    pub fn cancel_on_drop(self) -> DropHandle<R> {
+    pub fn cancel_on_drop(self) -> DropHandle<P, R> {
         DropHandle::new(self.base.cancel_on_drop())
     }
 
+    /// Return a pointer to the raw underlying task header.
+    ///
+    /// To be used with care.
+    pub fn as_raw_task(&self) -> NonNull<Header> {
+        self.base.as_raw_task()
+    }
+}
+
+impl<P: Priority, R> Handle<P, R> {
     /// Update the priority of this task.
-    pub fn set_priority(&self, priority: u8) {
+    pub fn set_priority(&self, priority: P) {
         use std::sync::atomic::Ordering;
+
+        let priority = priority.as_value();
 
         // Get the executor-specific task data
         let task = self.base.as_raw_task();
@@ -208,25 +248,19 @@ impl<R> Handle<R> {
     }
 
     /// Returns the current priority of this task.
-    pub fn priority(&self) -> u8 {
+    pub fn priority(&self) -> P {
         use std::sync::atomic::Ordering;
 
         // get the executor-specific task data
         let task = self.base.as_raw_task();
         let data = unsafe { Task::get_adapter_data(task).as_ref() };
 
-        data.priority.load(Ordering::SeqCst)
-    }
-
-    /// Return a pointer to the raw underlying task header.
-    ///
-    /// To be used with care.
-    pub fn as_raw_task(&self) -> NonNull<Header> {
-        self.base.as_raw_task()
+        let value = data.priority.load(Ordering::SeqCst);
+        P::from_value(value).unwrap()
     }
 }
 
-impl<R: Send> Handle<R> {
+impl<P, R: Send> Handle<P, R> {
     /// Wait for the task to complete and return its result.
     ///
     /// This function will return immediately if the associated task has
@@ -260,9 +294,12 @@ impl<R: Send> Handle<R> {
     }
 }
 
-impl<R> DropHandle<R> {
+impl<P, R> DropHandle<P, R> {
     fn new(base: BaseDropHandle<R>) -> Self {
-        Self { base }
+        Self {
+            base,
+            _marker: std::marker::PhantomData,
+        }
     }
 
     /// Check if the ssociated task has been completed.
@@ -279,9 +316,20 @@ impl<R> DropHandle<R> {
         self.base.cancel().map_err(Self::new)
     }
 
+    /// Return a pointer to the raw underlying task header.
+    ///
+    /// To be used with care.
+    pub fn as_raw_task(&self) -> NonNull<Header> {
+        self.base.as_raw_task()
+    }
+}
+
+impl<P: Priority, R> DropHandle<P, R> {
     /// Update the priority of this task.
-    pub fn set_priority(&self, priority: u8) {
+    pub fn set_priority(&self, priority: P) {
         use std::sync::atomic::Ordering;
+
+        let priority = priority.as_value();
 
         // Get the executor-specific task data
         let task = self.base.as_raw_task();
@@ -313,16 +361,9 @@ impl<R> DropHandle<R> {
 
         data.priority.load(Ordering::SeqCst)
     }
-
-    /// Return a pointer to the raw underlying task header.
-    ///
-    /// To be used with care.
-    pub fn as_raw_task(&self) -> NonNull<Header> {
-        self.base.as_raw_task()
-    }
 }
 
-impl<R: Send> DropHandle<R> {
+impl<P, R: Send> DropHandle<P, R> {
     /// Wait for the task to complete and return its result.
     ///
     /// This function will return immediately if the associated task has
@@ -433,27 +474,59 @@ unsafe impl linked_list::Link for Task {
 mod test {
     use super::*;
 
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum TaskPriority {
+        Low,
+        Medium,
+        High,
+    }
+
+    impl Priority for TaskPriority {
+        fn count() -> u8 {
+            3
+        }
+
+        fn from_value(value: u8) -> Option<Self> {
+            match value {
+                0 => Some(Self::Low),
+                1 => Some(Self::Medium),
+                2 => Some(Self::High),
+                _ => None,
+            }
+        }
+
+        fn as_value(&self) -> u8 {
+            match self {
+                Self::Low => 0,
+                Self::Medium => 1,
+                Self::High => 2,
+            }
+        }
+    }
+
+    type Executor = super::Executor<TaskPriority>;
+
     #[test]
     fn basic() {
         use std::thread;
         use std::time::Duration;
 
-        let mut exec = Executor::new(3, 2);
+        let mut exec = Executor::new(2);
 
         let val_a = 123;
-        let a = exec.submit(0, move || {
+        let a = exec.submit(TaskPriority::Low, move || {
             thread::sleep(Duration::from_millis(100));
             val_a
         });
 
         let val_b = 456;
-        let b = exec.submit(1, move || {
+        let b = exec.submit(TaskPriority::Medium, move || {
             thread::sleep(Duration::from_millis(50));
             val_b
         });
 
         let val_c = 789;
-        let c = exec.submit(2, move || {
+        let c = exec.submit(TaskPriority::High, move || {
             thread::sleep(Duration::from_millis(150));
             val_c
         });
@@ -469,7 +542,7 @@ mod test {
     fn priority() {
         use crate::utils::sync::Completion;
 
-        let mut exec = Executor::new(3, 1);
+        let mut exec = Executor::new(1);
 
         let completion = Arc::new(Completion::new());
         let order = Arc::new(Mutex::new(Vec::new()));
@@ -477,26 +550,26 @@ mod test {
         // Create a first task to block the worker thread until we have
         // finished submitting and modifying our tasks below.
         let compl = completion.clone();
-        let a = exec.submit(2, move || {
+        let a = exec.submit(TaskPriority::High, move || {
             compl.wait();
         });
 
         // Create a second task with a medium priority.
         let ord = order.clone();
-        let b = exec.submit(1, move || {
+        let b = exec.submit(TaskPriority::Medium, move || {
             ord.lock().unwrap().push(2);
         });
 
         // Create a third task with a low initial priority.
         let ord = order.clone();
-        let c = exec.submit(0, move || {
+        let c = exec.submit(TaskPriority::Low, move || {
             ord.lock().unwrap().push(3);
         });
 
         // Update the priority of the third task to "high". Since the worker
         // thread is blocked, the second task has not been started yet.
         // Therefore, the third task should be executed before the second task.
-        c.set_priority(2);
+        c.set_priority(TaskPriority::High);
 
         // Unblock the worker thread so that the remaining two tasks can run.
         completion.set_completed();
