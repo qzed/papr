@@ -1,5 +1,5 @@
 use nalgebra as na;
-use nalgebra::{vector, Vector2};
+use nalgebra::{point, vector, Vector2};
 
 use crate::types::{Bounds, Rect, Viewport};
 
@@ -21,10 +21,77 @@ pub trait TilingScheme {
 }
 
 #[derive(Debug, Clone)]
+pub struct HybridTilingScheme {
+    tile_size: Vector2<i64>,
+    min_tile_z: i64,
+}
+
+impl HybridTilingScheme {
+    pub fn new(tile_size: Vector2<i64>, min_size: i64) -> Self {
+        Self {
+            tile_size,
+            min_tile_z: min_size,
+        }
+    }
+}
+
+impl TilingScheme for HybridTilingScheme {
+    #[inline]
+    fn tiles(&self, _vp: &Viewport, page: &Rect<f64>, rect: &Bounds<f64>) -> TileRect {
+        let z = f64::max(page.size.x, page.size.y) as i64;
+
+        let rect = if z > self.min_tile_z {
+            rect.cast_unchecked().tiled(&self.tile_size)
+        } else {
+            Rect::new(point![0, 0], vector![1, 1]).bounds()
+        };
+
+        TileRect { rect, z }
+    }
+
+    #[inline]
+    fn screen_rect(&self, _vp: &Viewport, page: &Rect<f64>, id: &TileId) -> Rect<f64> {
+        if id.z > self.min_tile_z {
+            let z = f64::max(page.size.x, page.size.y);
+            let tile_size: Vector2<f64> = na::convert(self.tile_size);
+            let xy: Vector2<f64> = na::convert(vector![id.x, id.y]);
+
+            Rect::new(xy.component_mul(&tile_size).into(), tile_size).scale(z / id.z as f64)
+        } else {
+            Rect::new(point![0.0, 0.0], page.size)
+        }
+    }
+
+    #[inline]
+    fn render_rect(
+        &self,
+        _page_size_pt: &Vector2<f64>,
+        page_size_vp: &Vector2<f64>,
+        id: &TileId,
+    ) -> (Vector2<i64>, Rect<i64>) {
+        let page_size: Vector2<i64> = na::convert_unchecked(*page_size_vp);
+
+        let z = f64::max(page_size_vp.x, page_size_vp.y) as i64;
+
+        let tile_rect = if z > self.min_tile_z {
+            Rect::new(
+                vector![id.x, id.y].component_mul(&self.tile_size).into(),
+                self.tile_size,
+            )
+        } else {
+            Rect::new(point![0, 0], page_size)
+        };
+
+        (page_size, tile_rect)
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct ExactLevelTilingScheme {
     tile_size: Vector2<i64>,
 }
 
+#[allow(unused)]
 impl ExactLevelTilingScheme {
     pub fn new(tile_size: Vector2<i64>) -> Self {
         Self { tile_size }

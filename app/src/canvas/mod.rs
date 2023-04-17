@@ -22,7 +22,7 @@ mod layout;
 pub use layout::{HorizontalLayout, Layout, LayoutProvider, VerticalLayout};
 
 mod tile;
-use self::tile::{ExactLevelTilingScheme, TileId, TilingScheme};
+use self::tile::{HybridTilingScheme, TileId, TilingScheme};
 
 type Tile = self::tile::Tile<gdk::MemoryTexture>;
 
@@ -31,7 +31,7 @@ pub struct Canvas {
     pages: Vec<Page>,
     fallbacks: Vec<gdk::MemoryTexture>,
     layout: Layout,
-    manager: TileManager<ExactLevelTilingScheme>,
+    manager: TileManager<HybridTilingScheme>,
 }
 
 impl Canvas {
@@ -56,8 +56,7 @@ impl Canvas {
             glib::Continue(true)
         });
 
-        let tile_size = vector![1024, 1024];
-        let scheme = ExactLevelTilingScheme::new(tile_size);
+        let scheme = HybridTilingScheme::new(vector![1024, 1024], 3072);
         let manager = TileManager::new(scheme, notif_sender);
 
         // pre-render some fallback images
