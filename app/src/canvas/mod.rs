@@ -316,7 +316,7 @@ impl<S: TilingScheme> TileManager<S> {
 
         entry.cached.retain(|id, _tile| {
             // compute tile bounds
-            let tile_rect = self.scheme.screen_rect(vp, page_rect, &id);
+            let tile_rect = self.scheme.screen_rect(vp, page_rect, id);
             let tile_rect = tile_rect.bounds().round_outwards();
             let tile_rect_screen = tile_rect.translate(&page_rect.offs.coords);
 
