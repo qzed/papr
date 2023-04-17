@@ -166,7 +166,7 @@ impl ExecutorStruct {
 
         while self.running.load(Ordering::SeqCst) {
             for queue in queues.iter_mut().rev() {
-                if let Some(task) =  queue.pop_back() {
+                if let Some(task) = queue.pop_back() {
                     return Some(task);
                 }
             }
