@@ -36,3 +36,9 @@ impl Completion {
         !result.timed_out()
     }
 }
+
+impl Default for Completion {
+    fn default() -> Self {
+        Self::new()
+    }
+}
