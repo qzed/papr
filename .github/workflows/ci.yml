@@ -1,0 +1,107 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+      - devel
+      - feature/ci
+
+    tags:
+      - v[0-9]+.*
+      - testing-ci.*
+
+  pull_request:
+
+env:
+  PDFIUM_RELEASE: chromium%2F5715
+  CARGO_TERM_COLOR: always
+
+jobs:
+  lint:
+    name: Clippy
+    runs-on: ubuntu-latest
+    container: archlinux
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Install build dependencies
+      run: |
+        pacman -Syyu --noconfirm
+        pacman -S --noconfirm base-devel wget rustup clang gtk4 libadwaita
+
+    - name: Install libpdfium
+      run: |
+        mkdir -p ../pdfium && cd ../pdfium
+        wget https://github.com/bblanchon/pdfium-binaries/releases/download/${{ env.PDFIUM_RELEASE }}/pdfium-linux-x64.tgz
+        tar -xzf pdfium-linux-x64.tgz
+        cp lib/libpdfium.so /usr/lib/
+
+    - name: Install rust
+      run: |
+        rustup update stable && rustup default stable
+        rustup component add clippy
+
+    - name: Run clippy
+      continue-on-error: true
+      run: cargo clippy --all --all-features -- -Dwarnings
+
+  test-base:
+    name: Test
+    runs-on: ubuntu-latest
+    container: archlinux
+
+    strategy:
+      matrix:
+        toolchain: [stable, nightly]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Install build dependencies
+      run: |
+        pacman -Syyu --noconfirm
+        pacman -S --noconfirm base-devel wget rustup clang gtk4 libadwaita
+
+    - name: Install libpdfium
+      run: |
+        mkdir -p ../pdfium && cd ../pdfium
+        wget https://github.com/bblanchon/pdfium-binaries/releases/download/${{ env.PDFIUM_RELEASE }}/pdfium-linux-x64.tgz
+        tar -xzf pdfium-linux-x64.tgz
+        cp lib/libpdfium.so /usr/lib/
+
+    - name: Install rust
+      run: rustup update ${{ matrix.toolchain }} && rustup default ${{ matrix.toolchain }}
+
+    - name: Build
+      run: cargo build --all
+
+    - name: Test
+      run: cargo test --all
+
+  test-miri:
+    name: Test executor with Miri
+    runs-on: ubuntu-latest
+    container: archlinux
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Install build dependencies
+      run: |
+        pacman -Syyu --noconfirm
+        pacman -S --noconfirm base-devel rustup clang
+
+    - name: Install rust
+      run: |
+        rustup update nightly && rustup default nightly
+        rustup +nightly component add miri
+
+    - name: Build
+      run: cd executor && cargo build
+
+    - name: Test
+      run: cd executor && cargo miri test
