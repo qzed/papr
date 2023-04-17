@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
+use std::ops::Range;
 use std::rc::Rc;
 
 use gtk::traits::{SnapshotExt, WidgetExt};
@@ -194,7 +195,7 @@ pub struct TileManager<S> {
     executor: Executor,
     monitor: TaskMonitor,
 
-    visible: HashSet<usize>,
+    visible: Range<usize>,
     cache: HashMap<usize, TileCache>,
 }
 
@@ -203,7 +204,7 @@ impl<S: TilingScheme> TileManager<S> {
         let executor = Executor::new(1);
         let monitor = TaskMonitor::new(notif);
 
-        let visible = HashSet::new();
+        let visible = usize::MAX..0;
         let cache = HashMap::new();
 
         Self {
@@ -218,7 +219,7 @@ impl<S: TilingScheme> TileManager<S> {
     pub fn render_post(&mut self) {
         // remove out-of-view pages from cache
         self.cache.retain(|page, _| self.visible.contains(page));
-        self.visible.clear();
+        self.visible = usize::MAX..0;
     }
 
     pub fn render_page(
@@ -241,7 +242,8 @@ impl<S: TilingScheme> TileManager<S> {
         let entry = self.cache.entry(i_page).or_insert_with(TileCache::empty);
 
         // mark page as visible
-        self.visible.insert(i_page);
+        self.visible.start = usize::min(self.visible.start, i_page);
+        self.visible.end = usize::max(self.visible.end, i_page + 1);
 
         // request new tiles if not cached or pending
         for (ix, iy) in tiles.rect.range_iter() {
