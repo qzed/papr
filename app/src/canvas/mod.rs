@@ -391,7 +391,7 @@ type Executor = executor::exec::priority::Executor<TaskPriority>;
 type Handle<R> = executor::exec::priority::DropHandle<TaskPriority, R>;
 
 #[repr(u8)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq, IntoPrimitive, TryFromPrimitive)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, IntoPrimitive, TryFromPrimitive)]
 enum TaskPriority {
     Low = 0,
     Medium = 1,
