@@ -124,24 +124,32 @@ impl Canvas {
             m_trans * m_scale
         };
 
-        // find visible pages
-        let mut visible = usize::MAX..0;
-
-        for (i, page_rect_pt) in self.layout.rects.iter().enumerate() {
+        // transformation: page (bounds) from canvas to viewport
+        let page_to_viewport = move |page_rect: &Rect<f64>| {
             // transformation matrix: page to canvas
-            let m_ptc = Translation2::from(page_rect_pt.offs);
+            let m_ptc = Translation2::from(page_rect.offs);
 
             // transformation matrix: page to viewport/screen
             let m_ptv = m_ctv * m_ptc;
 
             // convert page bounds to screen coordinates
-            let page_rect = Rect::new(m_ptv * point![0.0, 0.0], m_ptv * page_rect_pt.size);
+            let page_rect = Rect::new(m_ptv * point![0.0, 0.0], m_ptv * page_rect.size);
 
             // round coordinates for pixel-perfect rendering
-            let page_rect = page_rect.round();
+            page_rect.round()
+        };
+
+        // origin-aligned viewport
+        let screen_rect = Rect::new(point![0.0, 0.0], vp.r.size);
+
+        // find visible pages
+        let mut visible = usize::MAX..0;
+
+        for (i, page_rect_pt) in self.layout.rects.iter().enumerate() {
+            // transform page bounds to viewport
+            let page_rect = page_to_viewport(page_rect_pt);
 
             // check if the page is visible
-            let screen_rect = Rect::new(point![0.0, 0.0], vp.r.size);
             if page_rect.intersects(&screen_rect) {
                 visible.start = usize::min(visible.start, i);
                 visible.end = usize::max(visible.end, i + 1);
@@ -158,20 +166,10 @@ impl Canvas {
             .zip(&self.layout.rects[visible.clone()]);
 
         for ((i, page), page_rect_pt) in iter {
-            // transformation matrix: page to canvas
-            let m_ptc = Translation2::from(page_rect_pt.offs);
-
-            // transformation matrix: page to viewport/screen
-            let m_ptv = m_ctv * m_ptc;
-
-            // convert page bounds to screen coordinates
-            let page_rect = Rect::new(m_ptv * point![0.0, 0.0], m_ptv * page_rect_pt.size);
-
-            // round coordinates for pixel-perfect rendering
-            let page_rect = page_rect.round();
+            // transform page bounds to viewport
+            let page_rect = page_to_viewport(page_rect_pt);
 
             // clip page bounds to visible screen area (area on screen covered by page)
-            let screen_rect = Rect::new(point![0.0, 0.0], vp.r.size);
             let page_clipped = page_rect.clip(&screen_rect);
 
             // recompute scale for rounded page
