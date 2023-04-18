@@ -27,14 +27,20 @@ use self::tile::{HybridTilingScheme, TileId, TilingScheme};
 
 type Tile = self::tile::Tile<gdk::MemoryTexture>;
 
+#[derive(Default)]
+struct FallbackEntry {
+    cached: Option<gdk::MemoryTexture>,
+    pending: Option<Handle<gdk::MemoryTexture>>,
+}
+
 pub struct Canvas {
     widget: Rc<RefCell<Option<Widget>>>,
     pages: Vec<Page>,
-    fallbacks: Vec<gdk::MemoryTexture>,
     layout: Layout,
     executor: Executor,
     monitor: TaskMonitor,
     manager: TileManager<HybridTilingScheme>,
+    fallbacks: Vec<HashMap<usize, FallbackEntry>>,
 }
 
 impl Canvas {
@@ -65,35 +71,14 @@ impl Canvas {
         let executor = Executor::new(1);
         let monitor = TaskMonitor::new(notif_sender);
 
-        // pre-render some fallback images
-        let mut fallbacks = Vec::with_capacity(pages.len());
-        for page in &pages {
-            let size = page.size();
-
-            // compute page render size and rectangle in pixels
-            let width: i64 = 256;
-            let scale = width as f32 / size.x;
-            let height = (scale * size.y).round() as i64;
-
-            let page_size = vector![width, height];
-            let rect = Rect::new(point![0, 0], page_size);
-
-            // render page to GDK texture
-            let flags = RenderFlags::LcdText | RenderFlags::Annotations;
-            let background = Color::WHITE;
-            let tex = render_page_rect_gdk(page, &page_size, &rect, background, flags).unwrap();
-
-            fallbacks.push(tex);
-        }
-
         Self {
             widget,
             pages,
-            fallbacks,
             layout,
             executor,
             monitor,
             manager,
+            fallbacks: vec![HashMap::new(), HashMap::new(), HashMap::new()],
         }
     }
 
@@ -164,6 +149,95 @@ impl Canvas {
             }
         }
 
+        // manage fallbacks
+        {
+            let lod_specs = [(50, 0.0, 256), (1, 1024.0, 1024), (0, 2048.0, 2048)];
+
+            // process LoD levels individually
+            for (lvl, (n_pages, min_width, width)) in lod_specs.iter().enumerate() {
+                let fallbacks = &mut self.fallbacks[lvl];
+
+                let range_start = visible.start.saturating_sub(*n_pages);
+                let range_end = usize::min(visible.end + n_pages, self.pages.len());
+                let range = range_start..range_end;
+
+                // remove fallbacks for out-of-scope pages
+                fallbacks.retain(|i, _| range.contains(i));
+
+                // request new fallbacks
+                let iter = range
+                    .clone()
+                    .zip(self.pages[range.clone()].iter_mut())
+                    .zip(&self.layout.rects[range]);
+
+                for ((i, page), page_rect_pt) in iter {
+                    // transform page bounds to viewport
+                    let page_rect = page_to_viewport(page_rect_pt);
+
+                    // skip if the page is too small and remove any entries we have for it
+                    if page_rect.size.x < *min_width {
+                        fallbacks.remove(&i);
+                        continue;
+                    }
+
+                    let fallback = fallbacks.entry(i).or_default();
+
+                    // check if a pending fallback has finished rendering and move it
+                    if fallback
+                        .pending
+                        .as_ref()
+                        .map(|h| h.is_finished())
+                        .unwrap_or(false)
+                    {
+                        fallback.cached =
+                            Some(std::mem::take(&mut fallback.pending).unwrap().join());
+                        continue;
+                    }
+
+                    // if we have a pending fallback, update its priority
+                    if let Some(handle) = fallback.pending.as_ref() {
+                        if visible.contains(&i) {
+                            handle.set_priority(TaskPriority::High);
+                        } else {
+                            handle.set_priority(TaskPriority::Low);
+                        }
+                        continue;
+                    }
+
+                    // if we already have a rendered result, skip
+                    if fallback.cached.is_some() {
+                        continue;
+                    }
+
+                    // compute page size for given width
+                    let scale = *width as f64 / page_rect_pt.size.x;
+                    let page_size = page_rect_pt.size * scale;
+                    let page_size = vector![page_size.x.round() as i64, page_size.y.round() as i64];
+                    let rect = Rect::new(point![0, 0], page_size);
+
+                    // offload rendering to dedicated thread
+                    let monitor = self.monitor.clone();
+                    let page = page.clone();
+
+                    let priority = if visible.contains(&i) {
+                        TaskPriority::High
+                    } else {
+                        TaskPriority::Low
+                    };
+
+                    let handle = self.executor.submit_with(monitor, priority, move || {
+                        let flags = RenderFlags::LcdText | RenderFlags::Annotations;
+                        let color = Color::WHITE;
+
+                        render_page_rect_gdk(&page, &page_size, &rect, color, flags).unwrap()
+                    });
+                    let handle = handle.cancel_on_drop();
+
+                    fallback.pending = Some(handle);
+                }
+            }
+        }
+
         // free all invisible tiles
         self.manager.cache_evict_unused_pages(visible.clone());
 
@@ -188,7 +262,21 @@ impl Canvas {
             snapshot.append_color(&gdk::RGBA::new(1.0, 1.0, 1.0, 1.0), &page_clipped.into());
 
             // draw fallback
-            snapshot.append_texture(&self.fallbacks[i], &page_rect.into());
+            let fallback = 'block: {
+                for fallbacks in self.fallbacks.iter().rev() {
+                    if let Some(fallback) = fallbacks.get(&i) {
+                        if let Some(tex) = fallback.cached.as_ref() {
+                            break 'block Some(tex);
+                        }
+                    }
+                }
+
+                None
+            };
+
+            if let Some(fallback) = fallback {
+                snapshot.append_texture(fallback, &page_rect.into());
+            }
 
             // draw tiles
             let rlist = self.manager.render_page(
