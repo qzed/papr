@@ -143,6 +143,7 @@ impl Canvas {
         let screen_rect = Rect::new(point![0.0, 0.0], vp.r.size);
 
         // find visible pages
+        #[allow(clippy::reversed_empty_ranges)]
         let mut visible = usize::MAX..0;
 
         for (i, page_rect_pt) in self.layout.rects.iter().enumerate() {
@@ -163,7 +164,7 @@ impl Canvas {
         let iter = visible
             .clone()
             .zip(self.pages[visible.clone()].iter_mut())
-            .zip(&self.layout.rects[visible.clone()]);
+            .zip(&self.layout.rects[visible]);
 
         for ((i, page), page_rect_pt) in iter {
             // transform page bounds to viewport
