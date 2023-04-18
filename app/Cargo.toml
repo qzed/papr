@@ -17,5 +17,8 @@ num_enum = "0.6.1"
 pdfium = { path = "../pdfium" }
 simba = "0.8.0"
 
+[target.'cfg(not(target_env = "msvc"))'.dependencies]
+tikv-jemallocator = "0.5"
+
 [build-dependencies]
 glib-build-tools = "0.17.0"
