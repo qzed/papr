@@ -124,10 +124,40 @@ impl Canvas {
             m_trans * m_scale
         };
 
-        // page rendering
-        let iter = self.pages.iter_mut().zip(&self.layout.rects);
+        // find visible pages
+        let mut visible = usize::MAX..0;
 
-        for (i, (page, page_rect_pt)) in iter.enumerate() {
+        for (i, page_rect_pt) in self.layout.rects.iter().enumerate() {
+            // transformation matrix: page to canvas
+            let m_ptc = Translation2::from(page_rect_pt.offs);
+
+            // transformation matrix: page to viewport/screen
+            let m_ptv = m_ctv * m_ptc;
+
+            // convert page bounds to screen coordinates
+            let page_rect = Rect::new(m_ptv * point![0.0, 0.0], m_ptv * page_rect_pt.size);
+
+            // round coordinates for pixel-perfect rendering
+            let page_rect = page_rect.round();
+
+            // check if the page is visible
+            let screen_rect = Rect::new(point![0.0, 0.0], vp.r.size);
+            if page_rect.intersects(&screen_rect) {
+                visible.start = usize::min(visible.start, i);
+                visible.end = usize::max(visible.end, i + 1);
+            }
+        }
+
+        // free all invisible tiles
+        self.manager.cache_evict_unused_pages(visible.clone());
+
+        // page rendering
+        let iter = visible
+            .clone()
+            .zip(self.pages[visible.clone()].iter_mut())
+            .zip(&self.layout.rects[visible.clone()]);
+
+        for ((i, page), page_rect_pt) in iter {
             // transformation matrix: page to canvas
             let m_ptc = Translation2::from(page_rect_pt.offs);
 
@@ -143,11 +173,6 @@ impl Canvas {
             // clip page bounds to visible screen area (area on screen covered by page)
             let screen_rect = Rect::new(point![0.0, 0.0], vp.r.size);
             let page_clipped = page_rect.clip(&screen_rect);
-
-            // check if page is in view, skip rendering if not
-            if page_clipped.size.x <= 0.0 || page_clipped.size.y <= 0.0 {
-                continue;
-            }
 
             // recompute scale for rounded page
             let scale = page_rect.size.x / page_rect_pt.size.x;
@@ -170,9 +195,6 @@ impl Canvas {
             }
             snapshot.pop();
         }
-
-        // free all invisible tiles
-        self.manager.render_post();
     }
 }
 
@@ -195,7 +217,6 @@ pub struct TileManager<S> {
     executor: Executor,
     monitor: TaskMonitor,
 
-    visible: Range<usize>,
     cache: HashMap<usize, TileCache>,
 }
 
@@ -204,22 +225,19 @@ impl<S: TilingScheme> TileManager<S> {
         let executor = Executor::new(1);
         let monitor = TaskMonitor::new(notif);
 
-        let visible = usize::MAX..0;
         let cache = HashMap::new();
 
         Self {
             scheme,
             executor,
             monitor,
-            visible,
             cache,
         }
     }
 
-    pub fn render_post(&mut self) {
+    pub fn cache_evict_unused_pages(&mut self, visible_pages: Range<usize>) {
         // remove out-of-view pages from cache
-        self.cache.retain(|page, _| self.visible.contains(page));
-        self.visible = usize::MAX..0;
+        self.cache.retain(|page, _| visible_pages.contains(page));
     }
 
     pub fn render_page(
@@ -240,10 +258,6 @@ impl<S: TilingScheme> TileManager<S> {
 
         // get cached tiles for this page
         let entry = self.cache.entry(i_page).or_insert_with(TileCache::empty);
-
-        // mark page as visible
-        self.visible.start = usize::min(self.visible.start, i_page);
-        self.visible.end = usize::max(self.visible.end, i_page + 1);
 
         // request new tiles if not cached or pending
         for (ix, iy) in tiles.rect.range_iter() {
