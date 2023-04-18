@@ -74,7 +74,7 @@ impl Canvas {
             let rect = Rect::new(point![0, 0], page_size);
 
             // render page to GDK texture
-            let flags = RenderFlags::LcdText;
+            let flags = RenderFlags::LcdText | RenderFlags::Annotations;
             let background = Color::WHITE;
             let tex = render_page_rect_gdk(page, &page_size, &rect, background, flags).unwrap();
 
