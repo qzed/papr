@@ -32,6 +32,8 @@ pub struct Canvas {
     pages: Vec<Page>,
     fallbacks: Vec<gdk::MemoryTexture>,
     layout: Layout,
+    executor: Executor,
+    monitor: TaskMonitor,
     manager: TileManager<HybridTilingScheme>,
 }
 
@@ -58,7 +60,10 @@ impl Canvas {
         });
 
         let scheme = HybridTilingScheme::new(vector![1024, 1024], 3072);
-        let manager = TileManager::new(scheme, notif_sender);
+        let manager = TileManager::new(scheme);
+
+        let executor = Executor::new(1);
+        let monitor = TaskMonitor::new(notif_sender);
 
         // pre-render some fallback images
         let mut fallbacks = Vec::with_capacity(pages.len());
@@ -86,6 +91,8 @@ impl Canvas {
             pages,
             fallbacks,
             layout,
+            executor,
+            monitor,
             manager,
         }
     }
@@ -184,9 +191,15 @@ impl Canvas {
             snapshot.append_texture(&self.fallbacks[i], &page_rect.into());
 
             // draw tiles
-            let rlist = self
-                .manager
-                .render_page(&vp_adj, i, page, page_rect_pt, &page_rect);
+            let rlist = self.manager.render_page(
+                &self.executor,
+                &self.monitor,
+                &vp_adj,
+                i,
+                page,
+                page_rect_pt,
+                &page_rect,
+            );
 
             snapshot.push_clip(&page_clipped.into());
             for (tile_rect, tile) in &rlist {
@@ -211,26 +224,16 @@ impl TileCache {
     }
 }
 
-pub struct TileManager<S> {
+struct TileManager<S> {
     scheme: S,
-    executor: Executor,
-    monitor: TaskMonitor,
-
     cache: HashMap<usize, TileCache>,
 }
 
 impl<S: TilingScheme> TileManager<S> {
-    pub fn new(scheme: S, notif: glib::Sender<()>) -> Self {
-        let executor = Executor::new(1);
-        let monitor = TaskMonitor::new(notif);
-
-        let cache = HashMap::new();
-
+    pub fn new(scheme: S) -> Self {
         Self {
             scheme,
-            executor,
-            monitor,
-            cache,
+            cache: HashMap::new(),
         }
     }
 
@@ -241,6 +244,8 @@ impl<S: TilingScheme> TileManager<S> {
 
     pub fn render_page(
         &mut self,
+        executor: &Executor,
+        monitor: &TaskMonitor,
         vp: &Viewport,
         i_page: usize,
         page: &Page,
@@ -273,11 +278,11 @@ impl<S: TilingScheme> TileManager<S> {
                     .render_rect(&page_rect_pt.size, &page_rect.size, &tile_id);
 
             // offload rendering to dedicated thread
-            let monitor = self.monitor.clone();
+            let monitor = monitor.clone();
             let page = page.clone();
             let priority = TaskPriority::Medium;
 
-            let handle = self.executor.submit_with(monitor, priority, move || {
+            let handle = executor.submit_with(monitor, priority, move || {
                 let flags = RenderFlags::LcdText | RenderFlags::Annotations;
                 let color = Color::WHITE;
 
