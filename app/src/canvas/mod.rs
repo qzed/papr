@@ -78,7 +78,7 @@ impl Canvas {
             executor,
             monitor,
             manager,
-            fallbacks: vec![HashMap::new(), HashMap::new(), HashMap::new()],
+            fallbacks: vec![HashMap::new(), HashMap::new(), HashMap::new(), HashMap::new()],
         }
     }
 
@@ -151,14 +151,14 @@ impl Canvas {
 
         // manage fallbacks
         {
-            let lod_specs = [(50, 0.0, 256), (1, 1024.0, 1024), (0, 2048.0, 2048)];
+            let lod_specs = [(usize::MAX, 0.0, 128), (24, 256.0, 256), (1, 1024.0, 1024), (0, 2048.0, 2048)];
 
             // process LoD levels individually
-            for (lvl, (n_pages, min_width, width)) in lod_specs.iter().enumerate() {
+            for (lvl, (n_pages, min_width, width)) in lod_specs.iter().enumerate().rev() {
                 let fallbacks = &mut self.fallbacks[lvl];
 
                 let range_start = visible.start.saturating_sub(*n_pages);
-                let range_end = usize::min(visible.end + n_pages, self.pages.len());
+                let range_end = usize::min(visible.end.saturating_add(*n_pages), self.pages.len());
                 let range = range_start..range_end;
 
                 // remove fallbacks for out-of-scope pages
