@@ -504,7 +504,7 @@ impl<S: TilingScheme> TileManager<S> {
             .clip(&Rect::new(point![0.0, 0.0], page_rect.size))
             .bounds();
 
-        // tile bounds
+        // tile bounds for viewport
         let tiles = self.scheme.tiles(vp, page_rect, &visible_page);
 
         // get cache entry
@@ -515,7 +515,18 @@ impl<S: TilingScheme> TileManager<S> {
         };
 
         // build ordered render list
-        let mut rlist: Vec<_> = entry.cached.values().collect();
+        let mut rlist: Vec<_> = entry
+            .cached
+            .values()
+            .filter(|tile| {
+                // if the tile has a different z-level we assume that it is
+                // required (otherwise, it should have been removed in the
+                // update)
+                tile.id.z != tiles.z ||
+                // if z-levels match, check if the tile is inside the viewport
+                tiles.rect.contains_point(&point![tile.id.x, tile.id.y])
+            })
+            .collect();
 
         rlist.sort_unstable_by(|a, b| {
             // sort by z-level:
