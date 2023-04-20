@@ -404,6 +404,7 @@ struct TileManager<S> {
     scheme: S,
     cache: HashMap<usize, TileCache>,
     halo: i64,
+    min_retain_size: Vector2<f64>,
 }
 
 struct TileCache {
@@ -417,6 +418,7 @@ impl<S: TilingScheme> TileManager<S> {
             scheme,
             cache: HashMap::new(),
             halo: 1,
+            min_retain_size: vector![25.0, 25.0],
         }
     }
 
@@ -617,6 +619,12 @@ impl<S: TilingScheme> TileManager<S> {
             // check if tile is in view, drop it if it is not
             let vpz_rect = Rect::new(point![0.0, 0.0], vp.r.size).bounds();
             if !tile_rect_screen.intersects(&vpz_rect) {
+                return false;
+            }
+
+            // if the tile is sufficently small, remove it
+            let size = tile_rect_screen.rect().size;
+            if size.x < self.min_retain_size.x && size.y < self.min_retain_size.y {
                 return false;
             }
 
