@@ -143,7 +143,7 @@ impl Canvas {
         };
 
         // transformation: page (bounds) from canvas to viewport
-        let page_to_viewport = move |page_rect: &Rect<f64>| {
+        let transform = move |page_rect: &Rect<f64>| {
             // transformation matrix: page to canvas
             let m_ptc = Translation2::from(page_rect.offs);
 
@@ -166,7 +166,7 @@ impl Canvas {
 
         for (i, page_rect_pt) in self.layout.rects.iter().enumerate() {
             // transform page bounds to viewport
-            let page_rect = page_to_viewport(page_rect_pt);
+            let page_rect = transform(page_rect_pt);
 
             // check if the page is visible
             if page_rect.intersects(&screen_rect) {
@@ -175,31 +175,17 @@ impl Canvas {
             }
         }
 
-        // update fallback cache
-        self.fbck_manager.update(
-            &self.exec,
-            &self.pages,
-            &self.layout.rects,
-            page_to_viewport,
-            &visible,
-        );
-
-        // update tile cache
-        self.tile_manager.update(
-            &self.exec,
-            vp,
-            &self.pages,
-            &self.layout.rects,
-            page_to_viewport,
-            &visible,
-        );
+        // update fallback- and tile-caches
+        let pages = PageData::new(&self.pages, &self.layout.rects, &visible);
+        self.fbck_manager.update(&self.exec, &pages, transform);
+        self.tile_manager.update(&self.exec, &pages, transform, vp);
 
         // render pages
         let iter = visible.clone().zip(&self.layout.rects[visible]);
 
         for (i, page_rect_pt) in iter {
             // transform page bounds to viewport
-            let page_rect = page_to_viewport(page_rect_pt);
+            let page_rect = transform(page_rect_pt);
 
             // clip page bounds to visible screen area (area on screen covered by page)
             let page_clipped = page_rect.clip(&screen_rect);
@@ -249,6 +235,22 @@ impl ExecutionContext {
     }
 }
 
+struct PageData<'a> {
+    pub pages: &'a [Page],
+    pub layout: &'a [Rect<f64>],
+    pub visible: &'a Range<usize>,
+}
+
+impl<'a> PageData<'a> {
+    pub fn new(pages: &'a [Page], layout: &'a [Rect<f64>], visible: &'a Range<usize>) -> Self {
+        Self {
+            pages,
+            layout,
+            visible,
+        }
+    }
+}
+
 struct FallbackManager {
     levels: Vec<FallbackLevel>,
 }
@@ -285,20 +287,14 @@ impl FallbackManager {
         FallbackManager { levels }
     }
 
-    pub fn update<F>(
-        &mut self,
-        exec: &ExecutionContext,
-        pages: &[Page],
-        page_rects: &[Rect<f64>],
-        page_transform: F,
-        visible: &Range<usize>,
-    ) where
+    pub fn update<F>(&mut self, exec: &ExecutionContext, pages: &PageData<'_>, page_transform: F)
+    where
         F: Fn(&Rect<f64>) -> Rect<f64>,
     {
         // process LoD levels from lowest to highest resolution
         for level in &mut self.levels {
             // page range for which the fallbacks should be computed
-            let range = level.spec.range(pages.len(), visible);
+            let range = level.spec.range(pages.pages.len(), pages.visible);
 
             // remove fallbacks for out-of-scope pages
             level.cache.retain(|i, _| range.contains(i));
@@ -306,8 +302,8 @@ impl FallbackManager {
             // request new fallbacks
             let iter = range
                 .clone()
-                .zip(&pages[range.clone()])
-                .zip(&page_rects[range]);
+                .zip(&pages.pages[range.clone()])
+                .zip(&pages.layout[range]);
 
             for ((i, page), page_rect_pt) in iter {
                 // transform page bounds to viewport
@@ -334,7 +330,7 @@ impl FallbackManager {
 
                 // if we have a pending fallback, update its priority
                 if let Some(handle) = fallback.pending.as_ref() {
-                    if visible.contains(&i) {
+                    if pages.visible.contains(&i) {
                         handle.set_priority(TaskPriority::High);
                     } else {
                         handle.set_priority(TaskPriority::Low);
@@ -354,7 +350,7 @@ impl FallbackManager {
                 let rect = Rect::new(point![0, 0], page_size);
 
                 // offload rendering to dedicated thread
-                let priority = if visible.contains(&i) {
+                let priority = if pages.visible.contains(&i) {
                     TaskPriority::High
                 } else {
                     TaskPriority::Low
@@ -425,22 +421,21 @@ impl<S: TilingScheme> TileManager<S> {
     pub fn update<F>(
         &mut self,
         exec: &ExecutionContext,
-        vp: &Viewport,
-        pages: &[Page],
-        page_rects: &[Rect<f64>],
+        pages: &PageData<'_>,
         page_transform: F,
-        visible: &Range<usize>,
+        vp: &Viewport,
     ) where
         F: Fn(&Rect<f64>) -> Rect<f64>,
     {
         // remove out-of-view pages from cache
-        self.cache.retain(|page, _| visible.contains(page));
+        self.cache.retain(|page, _| pages.visible.contains(page));
 
         // update tiles for all visible pages
-        let iter = visible
+        let iter = pages
+            .visible
             .clone()
-            .zip(&pages[visible.clone()])
-            .zip(&page_rects[visible.clone()]);
+            .zip(&pages.pages[pages.visible.clone()])
+            .zip(&pages.layout[pages.visible.clone()]);
 
         for ((i, page), page_rect_pt) in iter {
             // transform page bounds to viewport
