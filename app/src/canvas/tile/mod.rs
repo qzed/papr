@@ -11,6 +11,9 @@ pub use source::{TileHandle, TilePriority, TileSource};
 mod manager;
 pub use manager::TileManager;
 
+mod fallback;
+pub use fallback::{FallbackManager, FallbackSpec};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TileId {
     pub page: usize,

@@ -1,5 +1,4 @@
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::ops::Range;
 use std::rc::Rc;
 
@@ -20,7 +19,8 @@ mod layout;
 pub use layout::{HorizontalLayout, Layout, LayoutProvider, VerticalLayout};
 
 mod tile;
-use self::tile::{HybridTilingScheme, TileHandle, TilePriority, TileSource, TileManager};
+use self::tile::{FallbackManager, FallbackSpec};
+use self::tile::{HybridTilingScheme, TileManager, TilePriority, TileSource};
 
 pub struct PageData<'a> {
     pub pages: &'a [Page],
@@ -237,159 +237,6 @@ impl Canvas {
             }
             snapshot.pop();
         }
-    }
-}
-
-struct FallbackManager<H: TileHandle> {
-    levels: Vec<FallbackLevel<H>>,
-}
-
-struct FallbackLevel<H: TileHandle> {
-    spec: FallbackSpec,
-    cache: HashMap<usize, FallbackCacheEntry<H>>,
-}
-
-enum FallbackCacheEntry<H: TileHandle> {
-    Empty,
-    Cached(H::Data),
-    Pending(H),
-}
-
-#[derive(Clone, Copy)]
-struct FallbackSpec {
-    pub halo: usize,
-    pub min_width: f64,
-    pub tex_width: i64,
-}
-
-impl<H> FallbackManager<H>
-where
-    H: TileHandle,
-{
-    pub fn new(spec: &[FallbackSpec]) -> Self {
-        let mut levels: Vec<_> = spec
-            .iter()
-            .map(|spec| FallbackLevel {
-                spec: *spec,
-                cache: HashMap::new(),
-            })
-            .collect();
-
-        levels.sort_by_key(|x| x.spec.tex_width);
-
-        FallbackManager { levels }
-    }
-
-    pub fn update<F, S>(&mut self, source: &S, pages: &PageData<'_>, page_transform: F)
-    where
-        F: Fn(&Rect<f64>) -> Rect<f64>,
-        S: TileSource<Handle = H>,
-    {
-        // process LoD levels from lowest to highest resolution
-        for level in &mut self.levels {
-            // page range for which the fallbacks should be computed
-            let range = level.spec.range(pages.pages.len(), pages.visible);
-
-            // remove fallbacks for out-of-scope pages
-            level.cache.retain(|i, _| range.contains(i));
-
-            // request new fallbacks
-            let iter = range
-                .clone()
-                .zip(&pages.pages[range.clone()])
-                .zip(&pages.layout[range]);
-
-            for ((i, page), page_rect_pt) in iter {
-                // transform page bounds to viewport
-                let page_rect = page_transform(page_rect_pt);
-
-                // skip if the page is too small and remove any entries we have for it
-                if page_rect.size.x < level.spec.min_width {
-                    level.cache.remove(&i);
-                    continue;
-                }
-
-                let fallback = level.cache.entry(i).or_insert(FallbackCacheEntry::Empty);
-
-                // if we already have a rendered result, skip
-                if let FallbackCacheEntry::Cached(_) = fallback {
-                    continue;
-                }
-
-                // check if a pending fallback has finished rendering and move it
-                if fallback.is_render_finished() {
-                    fallback.move_to_cached();
-                    continue;
-                }
-
-                // if we have a pending fallback, update its priority
-                if let FallbackCacheEntry::Pending(task) = fallback {
-                    if pages.visible.contains(&i) {
-                        task.set_priority(TilePriority::High);
-                    } else {
-                        task.set_priority(TilePriority::Low);
-                    }
-                    continue;
-                }
-
-                // compute page size for given width
-                let scale = level.spec.tex_width as f64 / page_rect_pt.size.x;
-                let page_size = page_rect_pt.size * scale;
-                let page_size = vector![page_size.x.round() as i64, page_size.y.round() as i64];
-                let rect = Rect::new(point![0, 0], page_size);
-
-                // set priority based on visibility
-                let priority = if pages.visible.contains(&i) {
-                    TilePriority::High
-                } else {
-                    TilePriority::Low
-                };
-
-                // request tile
-                let task = source.request(page, page_size, rect, priority);
-                *fallback = FallbackCacheEntry::Pending(task);
-            }
-        }
-    }
-
-    pub fn fallback(&self, page_index: usize) -> Option<&H::Data> {
-        // get the cached fallback with the highest resolution
-        for level in self.levels.iter().rev() {
-            if let Some(FallbackCacheEntry::Cached(tex)) = level.cache.get(&page_index) {
-                return Some(tex);
-            }
-        }
-
-        None
-    }
-}
-
-impl<H> FallbackCacheEntry<H>
-where
-    H: TileHandle,
-{
-    pub fn is_render_finished(&self) -> bool {
-        if let Self::Pending(task) = self {
-            task.is_finished()
-        } else {
-            false
-        }
-    }
-
-    pub fn move_to_cached(&mut self) {
-        match std::mem::replace(self, FallbackCacheEntry::Empty) {
-            FallbackCacheEntry::Empty => {}
-            FallbackCacheEntry::Cached(tex) => *self = FallbackCacheEntry::Cached(tex),
-            FallbackCacheEntry::Pending(task) => *self = FallbackCacheEntry::Cached(task.join()),
-        }
-    }
-}
-
-impl FallbackSpec {
-    fn range(self, n: usize, base: &Range<usize>) -> Range<usize> {
-        let start = base.start.saturating_sub(self.halo);
-        let end = usize::min(base.end.saturating_add(self.halo), n);
-        start..end
     }
 }
 
