@@ -27,12 +27,6 @@ use self::tile::{HybridTilingScheme, TileId, TilingScheme};
 
 type Tile = self::tile::Tile<gdk::MemoryTexture>;
 
-#[derive(Default)]
-struct FallbackEntry {
-    cached: Option<gdk::MemoryTexture>,
-    pending: Option<Handle<gdk::MemoryTexture>>,
-}
-
 pub struct Canvas {
     widget: Rc<RefCell<Option<Widget>>>,
     pages: Vec<Page>,
@@ -40,7 +34,7 @@ pub struct Canvas {
     executor: Executor,
     monitor: TaskMonitor,
     manager: TileManager<HybridTilingScheme>,
-    fallbacks: Vec<HashMap<usize, FallbackEntry>>,
+    fallbacks: Vec<HashMap<usize, FallbackCache>>,
 }
 
 impl Canvas {
@@ -149,7 +143,7 @@ impl Canvas {
             }
         }
 
-        // manage fallbacks
+        // update fallback cache
         {
             let lod_specs = [(usize::MAX, 0.0, 128), (24, 256.0, 256), (1, 1024.0, 1024), (0, 2048.0, 2048)];
 
@@ -180,7 +174,7 @@ impl Canvas {
                         continue;
                     }
 
-                    let fallback = fallbacks.entry(i).or_default();
+                    let fallback = fallbacks.entry(i).or_insert_with(FallbackCache::empty);
 
                     // check if a pending fallback has finished rendering and move it
                     if fallback
@@ -238,16 +232,21 @@ impl Canvas {
             }
         }
 
-        // free all invisible tiles
-        self.manager.cache_evict_unused_pages(visible.clone());
+        // update tile cache
+        self.manager.update(
+            &self.executor,
+            &self.monitor,
+            vp,
+            &self.pages,
+            &self.layout.rects,
+            page_to_viewport,
+            &visible,
+        );
 
         // page rendering
-        let iter = visible
-            .clone()
-            .zip(self.pages[visible.clone()].iter_mut())
-            .zip(&self.layout.rects[visible]);
+        let iter = visible.clone().zip(&self.layout.rects[visible]);
 
-        for ((i, page), page_rect_pt) in iter {
+        for (i, page_rect_pt) in iter {
             // transform page bounds to viewport
             let page_rect = page_to_viewport(page_rect_pt);
 
@@ -279,18 +278,10 @@ impl Canvas {
             }
 
             // draw tiles
-            let rlist = self.manager.render_page(
-                &self.executor,
-                &self.monitor,
-                &vp_adj,
-                i,
-                page,
-                page_rect_pt,
-                &page_rect,
-            );
+            let tile_list = self.manager.tiles(&vp_adj, i, &page_rect);
 
             snapshot.push_clip(&page_clipped.into());
-            for (tile_rect, tile) in &rlist {
+            for (tile_rect, tile) in &tile_list {
                 snapshot.append_texture(&tile.data, &(*tile_rect).into());
             }
             snapshot.pop();
@@ -298,16 +289,16 @@ impl Canvas {
     }
 }
 
-struct TileCache {
-    cached: HashMap<TileId, Tile>,
-    pending: HashMap<TileId, Option<Handle<Tile>>>,
+struct FallbackCache {
+    cached: Option<gdk::MemoryTexture>,
+    pending: Option<Handle<gdk::MemoryTexture>>,
 }
 
-impl TileCache {
+impl FallbackCache {
     fn empty() -> Self {
         Self {
-            cached: HashMap::new(),
-            pending: HashMap::new(),
+            cached: None,
+            pending: None,
         }
     }
 }
@@ -315,6 +306,11 @@ impl TileCache {
 struct TileManager<S> {
     scheme: S,
     cache: HashMap<usize, TileCache>,
+}
+
+struct TileCache {
+    cached: HashMap<TileId, Tile>,
+    pending: HashMap<TileId, Option<Handle<Tile>>>,
 }
 
 impl<S: TilingScheme> TileManager<S> {
@@ -325,21 +321,58 @@ impl<S: TilingScheme> TileManager<S> {
         }
     }
 
-    pub fn cache_evict_unused_pages(&mut self, visible_pages: Range<usize>) {
-        // remove out-of-view pages from cache
-        self.cache.retain(|page, _| visible_pages.contains(page));
-    }
-
-    pub fn render_page(
+    pub fn update<F>(
         &mut self,
         executor: &Executor,
         monitor: &TaskMonitor,
         vp: &Viewport,
-        i_page: usize,
+        pages: &[Page],
+        page_rects: &[Rect<f64>],
+        page_transform: F,
+        visible: &Range<usize>,
+    ) where
+        F: Fn(&Rect<f64>) -> Rect<f64>,
+    {
+        // remove out-of-view pages from cache
+        self.cache.retain(|page, _| visible.contains(page));
+
+        // update tiles for all visible pages
+        let iter = visible
+            .clone()
+            .zip(&pages[visible.clone()])
+            .zip(&page_rects[visible.clone()]);
+
+        for ((i, page), page_rect_pt) in iter {
+            // transform page bounds to viewport
+            let page_rect = page_transform(page_rect_pt);
+
+            // recompute scale for rounded page
+            let scale = page_rect.size.x / page_rect_pt.size.x;
+            let vp_adj = Viewport { r: vp.r, scale };
+
+            // update tiles for page
+            self.update_page(
+                executor,
+                monitor,
+                &vp_adj,
+                page,
+                i,
+                &page_rect,
+                &page_rect_pt,
+            );
+        }
+    }
+
+    fn update_page(
+        &mut self,
+        executor: &Executor,
+        monitor: &TaskMonitor,
+        vp: &Viewport,
         page: &Page,
-        page_rect_pt: &Rect<f64>,
+        page_index: usize,
         page_rect: &Rect<f64>,
-    ) -> Vec<(Rect<f64>, &Tile)> {
+        page_rect_pt: &Rect<f64>,
+    ) {
         // viewport bounds relative to the page in pixels (area of page visible on screen)
         let visible_page = Rect::new(-page_rect.offs, vp.r.size)
             .clip(&Rect::new(point![0.0, 0.0], page_rect.size))
@@ -349,11 +382,14 @@ impl<S: TilingScheme> TileManager<S> {
         let tiles = self.scheme.tiles(vp, page_rect, &visible_page);
 
         // get cached tiles for this page
-        let entry = self.cache.entry(i_page).or_insert_with(TileCache::empty);
+        let entry = self
+            .cache
+            .entry(page_index)
+            .or_insert_with(TileCache::empty);
 
         // request new tiles if not cached or pending
         for (ix, iy) in tiles.rect.range_iter() {
-            let tile_id = TileId::new(i_page, ix, iy, tiles.z);
+            let tile_id = TileId::new(page_index, ix, iy, tiles.z);
 
             // check if we already have the tile (or requested it)
             if entry.cached.contains_key(&tile_id) || entry.pending.contains_key(&tile_id) {
@@ -453,8 +489,30 @@ impl<S: TilingScheme> TileManager<S> {
             // check if all required tiles are present
             !tiles_req
                 .range_iter()
-                .all(|(x, y)| cached_keys.contains(&TileId::new(i_page, x, y, tiles.z)))
+                .all(|(x, y)| cached_keys.contains(&TileId::new(page_index, x, y, tiles.z)))
         });
+    }
+
+    pub fn tiles(
+        &self,
+        vp: &Viewport,
+        page_index: usize,
+        page_rect: &Rect<f64>,
+    ) -> Vec<(Rect<f64>, &Tile)> {
+        // viewport bounds relative to the page in pixels (area of page visible on screen)
+        let visible_page = Rect::new(-page_rect.offs, vp.r.size)
+            .clip(&Rect::new(point![0.0, 0.0], page_rect.size))
+            .bounds();
+
+        // tile bounds
+        let tiles = self.scheme.tiles(vp, page_rect, &visible_page);
+
+        // get cache entry
+        let entry = if let Some(entry) = self.cache.get(&page_index) {
+            entry
+        } else {
+            return Vec::new();
+        };
 
         // build ordered render list
         let mut rlist: Vec<_> = entry.cached.values().collect();
@@ -492,6 +550,15 @@ impl<S: TilingScheme> TileManager<S> {
                 (tile_rect, tile)
             })
             .collect()
+    }
+}
+
+impl TileCache {
+    fn empty() -> Self {
+        Self {
+            cached: HashMap::new(),
+            pending: HashMap::new(),
+        }
     }
 }
 
