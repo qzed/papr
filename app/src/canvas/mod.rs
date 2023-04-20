@@ -38,29 +38,20 @@ pub struct Canvas {
 
 impl Canvas {
     pub fn create(doc: Document) -> Self {
+        // load pages
         let pages: Vec<_> = (0..(doc.pdf.pages().count()))
             .map(|i| doc.pdf.pages().get(i).unwrap())
             .collect();
 
+        // compute layout
         let layout_provider = VerticalLayout;
         let layout = layout_provider.compute(&pages, 10.0);
 
-        let widget: Rc<RefCell<Option<Widget>>> = Rc::new(RefCell::new(None));
-
-        let (notif_sender, notif_receiver) = glib::MainContext::channel(glib::PRIORITY_DEFAULT);
-
-        let w = widget.clone();
-        notif_receiver.attach(None, move |_| {
-            if let Some(w) = w.borrow().as_ref() {
-                w.queue_draw();
-            }
-
-            glib::Continue(true)
-        });
-
+        // set up tile-manager
         let scheme = HybridTilingScheme::new(vector![1024, 1024], 3072);
         let tile_manager = TileManager::new(scheme);
 
+        // set up fallback-manager
         let fbck_spec = [
             FallbackSpec {
                 halo: usize::MAX,
@@ -89,6 +80,19 @@ impl Canvas {
             },
         ];
         let fbck_manager = FallbackManager::new(&fbck_spec);
+
+        // set up render task execution
+        let (notif_sender, notif_receiver) = glib::MainContext::channel(glib::PRIORITY_DEFAULT);
+
+        let widget: Rc<RefCell<Option<Widget>>> = Rc::new(RefCell::new(None));
+        let w = widget.clone();
+        notif_receiver.attach(None, move |_| {
+            if let Some(w) = w.borrow().as_ref() {
+                w.queue_draw();
+            }
+
+            glib::Continue(true)
+        });
 
         let executor = Executor::new(1);
         let monitor = TaskMonitor::new(notif_sender);
@@ -190,7 +194,7 @@ impl Canvas {
             &visible,
         );
 
-        // page rendering
+        // render pages
         let iter = visible.clone().zip(&self.layout.rects[visible]);
 
         for (i, page_rect_pt) in iter {
