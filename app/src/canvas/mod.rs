@@ -270,9 +270,10 @@ struct FallbackManager {
     levels: Vec<FallbackLevel>,
 }
 
-struct FallbackCache {
-    cached: Option<gdk::MemoryTexture>,
-    pending: Option<Handle<gdk::MemoryTexture>>,
+enum FallbackCacheEntry<T> {
+    Empty,
+    Cached(T),
+    Pending(Handle<T>),
 }
 
 #[derive(Clone, Copy)]
@@ -284,7 +285,7 @@ struct FallbackSpec {
 
 struct FallbackLevel {
     spec: FallbackSpec,
-    cache: HashMap<usize, FallbackCache>,
+    cache: HashMap<usize, FallbackCacheEntry<gdk::MemoryTexture>>,
 }
 
 impl FallbackManager {
@@ -330,31 +331,26 @@ impl FallbackManager {
                     continue;
                 }
 
-                let fallback = level.cache.entry(i).or_insert_with(FallbackCache::empty);
+                let fallback = level.cache.entry(i).or_insert(FallbackCacheEntry::Empty);
+
+                // if we already have a rendered result, skip
+                if let FallbackCacheEntry::Cached(_) = fallback {
+                    continue;
+                }
 
                 // check if a pending fallback has finished rendering and move it
-                if fallback
-                    .pending
-                    .as_ref()
-                    .map(|h| h.is_finished())
-                    .unwrap_or(false)
-                {
-                    fallback.cached = Some(std::mem::take(&mut fallback.pending).unwrap().join());
+                if fallback.is_render_finished() {
+                    fallback.move_to_cached();
                     continue;
                 }
 
                 // if we have a pending fallback, update its priority
-                if let Some(handle) = fallback.pending.as_ref() {
+                if let FallbackCacheEntry::Pending(task) = fallback {
                     if pages.visible.contains(&i) {
-                        handle.set_priority(TaskPriority::High);
+                        task.set_priority(TaskPriority::High);
                     } else {
-                        handle.set_priority(TaskPriority::Low);
+                        task.set_priority(TaskPriority::Low);
                     }
-                    continue;
-                }
-
-                // if we already have a rendered result, skip
-                if fallback.cached.is_some() {
                     continue;
                 }
 
@@ -372,14 +368,14 @@ impl FallbackManager {
                 };
 
                 let page = page.clone();
-                let handle = exec.submit(priority, move || {
+                let task = exec.submit(priority, move || {
                     let flags = RenderFlags::LcdText | RenderFlags::Annotations;
                     let color = Color::WHITE;
 
                     render_page_rect_gdk(&page, &page_size, &rect, color, flags).unwrap()
                 });
 
-                fallback.pending = Some(handle);
+                *fallback = FallbackCacheEntry::Pending(task);
             }
         }
     }
@@ -388,7 +384,7 @@ impl FallbackManager {
         // get the cached fallback with the highest resolution
         for level in self.levels.iter().rev() {
             if let Some(fallback) = level.cache.get(&page_index) {
-                if let Some(tex) = fallback.cached.as_ref() {
+                if let FallbackCacheEntry::Cached(tex) = fallback {
                     return Some(tex);
                 }
             }
@@ -398,11 +394,23 @@ impl FallbackManager {
     }
 }
 
-impl FallbackCache {
-    fn empty() -> Self {
-        Self {
-            cached: None,
-            pending: None,
+impl<T> FallbackCacheEntry<T>
+where
+    T: Send,
+{
+    pub fn is_render_finished(&self) -> bool {
+        if let Self::Pending(task) = self {
+            task.is_finished()
+        } else {
+            false
+        }
+    }
+
+    pub fn move_to_cached(&mut self) {
+        match std::mem::replace(self, FallbackCacheEntry::Empty) {
+            FallbackCacheEntry::Empty => {}
+            FallbackCacheEntry::Cached(tex) => *self = FallbackCacheEntry::Cached(tex),
+            FallbackCacheEntry::Pending(task) => *self = FallbackCacheEntry::Cached(task.join()),
         }
     }
 }
