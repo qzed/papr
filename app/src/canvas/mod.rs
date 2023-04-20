@@ -441,7 +441,7 @@ impl<S: TilingScheme> TileManager<S> {
                 page,
                 i,
                 &page_rect,
-                &page_rect_pt,
+                page_rect_pt,
             );
         }
     }
