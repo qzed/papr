@@ -31,8 +31,7 @@ pub struct Canvas {
     widget: Rc<RefCell<Option<Widget>>>,
     pages: Vec<Page>,
     layout: Layout,
-    executor: Executor,
-    monitor: TaskMonitor,
+    exec: ExecutionContext,
     tile_manager: TileManager<HybridTilingScheme>,
     fbck_manager: FallbackManager,
 }
@@ -93,13 +92,13 @@ impl Canvas {
 
         let executor = Executor::new(1);
         let monitor = TaskMonitor::new(notif_sender);
+        let exec = ExecutionContext::new(executor, monitor);
 
         Self {
             widget,
             pages,
             layout,
-            executor,
-            monitor,
+            exec,
             tile_manager,
             fbck_manager,
         }
@@ -174,8 +173,7 @@ impl Canvas {
 
         // update fallback cache
         self.fbck_manager.update(
-            &self.executor,
-            &self.monitor,
+            &self.exec,
             &self.pages,
             &self.layout.rects,
             page_to_viewport,
@@ -184,8 +182,7 @@ impl Canvas {
 
         // update tile cache
         self.tile_manager.update(
-            &self.executor,
-            &self.monitor,
+            &self.exec,
             vp,
             &self.pages,
             &self.layout.rects,
@@ -227,6 +224,27 @@ impl Canvas {
     }
 }
 
+struct ExecutionContext {
+    executor: Executor,
+    monitor: TaskMonitor,
+}
+
+impl ExecutionContext {
+    pub fn new(executor: Executor, monitor: TaskMonitor) -> Self {
+        Self { executor, monitor }
+    }
+
+    pub fn submit<F, R>(&self, priority: TaskPriority, closure: F) -> Handle<R>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        self.executor
+            .submit_with(self.monitor.clone(), priority, closure)
+            .cancel_on_drop()
+    }
+}
+
 struct FallbackManager {
     levels: Vec<FallbackLevel>,
 }
@@ -265,8 +283,7 @@ impl FallbackManager {
 
     pub fn update<F>(
         &mut self,
-        executor: &Executor,
-        monitor: &TaskMonitor,
+        exec: &ExecutionContext,
         pages: &[Page],
         page_rects: &[Rect<f64>],
         page_transform: F,
@@ -333,22 +350,19 @@ impl FallbackManager {
                 let rect = Rect::new(point![0, 0], page_size);
 
                 // offload rendering to dedicated thread
-                let monitor = monitor.clone();
-                let page = page.clone();
-
                 let priority = if visible.contains(&i) {
                     TaskPriority::High
                 } else {
                     TaskPriority::Low
                 };
 
-                let handle = executor.submit_with(monitor, priority, move || {
+                let page = page.clone();
+                let handle = exec.submit(priority, move || {
                     let flags = RenderFlags::LcdText | RenderFlags::Annotations;
                     let color = Color::WHITE;
 
                     render_page_rect_gdk(&page, &page_size, &rect, color, flags).unwrap()
                 });
-                let handle = handle.cancel_on_drop();
 
                 fallback.pending = Some(handle);
             }
@@ -406,8 +420,7 @@ impl<S: TilingScheme> TileManager<S> {
 
     pub fn update<F>(
         &mut self,
-        executor: &Executor,
-        monitor: &TaskMonitor,
+        exec: &ExecutionContext,
         vp: &Viewport,
         pages: &[Page],
         page_rects: &[Rect<f64>],
@@ -434,22 +447,13 @@ impl<S: TilingScheme> TileManager<S> {
             let vp_adj = Viewport { r: vp.r, scale };
 
             // update tiles for page
-            self.update_page(
-                executor,
-                monitor,
-                &vp_adj,
-                page,
-                i,
-                &page_rect,
-                page_rect_pt,
-            );
+            self.update_page(exec, &vp_adj, page, i, &page_rect, page_rect_pt);
         }
     }
 
     fn update_page(
         &mut self,
-        executor: &Executor,
-        monitor: &TaskMonitor,
+        exec: &ExecutionContext,
         vp: &Viewport,
         page: &Page,
         page_index: usize,
@@ -485,11 +489,12 @@ impl<S: TilingScheme> TileManager<S> {
                     .render_rect(&page_rect_pt.size, &page_rect.size, &tile_id);
 
             // offload rendering to dedicated thread
-            let monitor = monitor.clone();
-            let page = page.clone();
             let priority = TaskPriority::Medium;
 
-            let handle = executor.submit_with(monitor, priority, move || {
+            let page = page.clone();
+            let handle = exec.submit(priority, move || {
+                // TODO: struct for rendering (with some sort of factory pattern for GDK?)
+
                 let flags = RenderFlags::LcdText | RenderFlags::Annotations;
                 let color = Color::WHITE;
 
@@ -497,7 +502,6 @@ impl<S: TilingScheme> TileManager<S> {
 
                 Tile::new(tile_id, texture)
             });
-            let handle = handle.cancel_on_drop();
 
             // store handle to the render task
             entry.pending.insert(tile_id, Some(handle));
