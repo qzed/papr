@@ -243,6 +243,23 @@ impl Canvas {
 type Executor = executor::exec::priority::Executor<TilePriority>;
 type Handle<R> = executor::exec::priority::DropHandle<TilePriority, R>;
 
+#[derive(Clone)]
+struct TaskMonitor {
+    sender: glib::Sender<()>,
+}
+
+impl TaskMonitor {
+    fn new(sender: glib::Sender<()>) -> Self {
+        Self { sender }
+    }
+}
+
+impl executor::exec::Monitor for TaskMonitor {
+    fn on_complete(&self) {
+        self.sender.send(()).unwrap()
+    }
+}
+
 struct PdfTileSource {
     executor: Executor,
     monitor: TaskMonitor,
@@ -278,23 +295,6 @@ impl TileSource for PdfTileSource {
         self.executor
             .submit_with(self.monitor.clone(), priority, task)
             .cancel_on_drop()
-    }
-}
-
-#[derive(Clone)]
-struct TaskMonitor {
-    sender: glib::Sender<()>,
-}
-
-impl TaskMonitor {
-    fn new(sender: glib::Sender<()>) -> Self {
-        Self { sender }
-    }
-}
-
-impl executor::exec::Monitor for TaskMonitor {
-    fn on_complete(&self) {
-        self.sender.send(()).unwrap()
     }
 }
 
