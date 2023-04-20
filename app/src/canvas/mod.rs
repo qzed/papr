@@ -227,27 +227,6 @@ impl Canvas {
     }
 }
 
-struct ExecutionContext {
-    executor: Executor,
-    monitor: TaskMonitor,
-}
-
-impl ExecutionContext {
-    pub fn new(executor: Executor, monitor: TaskMonitor) -> Self {
-        Self { executor, monitor }
-    }
-
-    pub fn submit<F, R>(&self, priority: TaskPriority, closure: F) -> Handle<R>
-    where
-        F: FnOnce() -> R + Send + 'static,
-        R: Send + 'static,
-    {
-        self.executor
-            .submit_with(self.monitor.clone(), priority, closure)
-            .cancel_on_drop()
-    }
-}
-
 struct PageData<'a> {
     pub pages: &'a [Page],
     pub layout: &'a [Rect<f64>],
@@ -743,6 +722,27 @@ impl<T> TileCache<T> {
 
 type Executor = executor::exec::priority::Executor<TaskPriority>;
 type Handle<R> = executor::exec::priority::DropHandle<TaskPriority, R>;
+
+struct ExecutionContext {
+    executor: Executor,
+    monitor: TaskMonitor,
+}
+
+impl ExecutionContext {
+    pub fn new(executor: Executor, monitor: TaskMonitor) -> Self {
+        Self { executor, monitor }
+    }
+
+    pub fn submit<F, R>(&self, priority: TaskPriority, closure: F) -> Handle<R>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        self.executor
+            .submit_with(self.monitor.clone(), priority, closure)
+            .cancel_on_drop()
+    }
+}
 
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, IntoPrimitive, TryFromPrimitive)]
