@@ -25,18 +25,6 @@ impl TileId {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Tile<T> {
-    pub id: TileId,
-    pub data: T,
-}
-
-impl<T> Tile<T> {
-    pub fn new(id: TileId, data: T) -> Self {
-        Self { id, data }
-    }
-}
-
 pub struct TileRect {
     pub rect: Bounds<i64>,
     pub z: i64,

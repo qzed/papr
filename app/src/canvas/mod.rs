@@ -25,8 +25,6 @@ pub use layout::{HorizontalLayout, Layout, LayoutProvider, VerticalLayout};
 mod tile;
 use self::tile::{HybridTilingScheme, TileId, TilingScheme};
 
-type Tile = self::tile::Tile<gdk::MemoryTexture>;
-
 pub struct Canvas {
     widget: Rc<RefCell<Option<Widget>>>,
     pages: Vec<Page>,
@@ -213,16 +211,16 @@ impl Canvas {
             snapshot.append_color(&gdk::RGBA::new(1.0, 1.0, 1.0, 1.0), &page_clipped.into());
 
             // draw fallback
-            if let Some(fallback) = self.fbck_manager.fallback(i) {
-                snapshot.append_texture(fallback, &page_rect.into());
+            if let Some(tex) = self.fbck_manager.fallback(i) {
+                snapshot.append_texture(tex, &page_rect.into());
             }
 
             // draw tiles
             let tile_list = self.tile_manager.tiles(&vp_adj, i, &page_rect);
 
             snapshot.push_clip(&page_clipped.into());
-            for (tile_rect, tile) in &tile_list {
-                snapshot.append_texture(&tile.data, &(*tile_rect).into());
+            for (tile_rect, tex) in &tile_list {
+                snapshot.append_texture(*tex, &(*tile_rect).into());
             }
             snapshot.pop();
         }
@@ -423,14 +421,14 @@ impl FallbackSpec {
 
 struct TileManager<S> {
     scheme: S,
-    cache: HashMap<usize, TileCache>,
+    cache: HashMap<usize, TileCache<gdk::MemoryTexture>>,
     halo: i64,
     min_retain_size: Vector2<f64>,
 }
 
-struct TileCache {
-    cached: HashMap<TileId, Tile>,
-    pending: HashMap<TileId, Option<Handle<Tile>>>,
+struct TileCache<T> {
+    cached: HashMap<TileId, T>,
+    pending: HashMap<TileId, Option<Handle<T>>>,
 }
 
 impl<S: TilingScheme> TileManager<S> {
@@ -541,17 +539,15 @@ impl<S: TilingScheme> TileManager<S> {
 
                 // offload rendering to dedicated thread
                 let page = page.clone();
-                let handle = exec.submit(priority, move || {
+                let task = exec.submit(priority, move || {
                     let flags = RenderFlags::LcdText | RenderFlags::Annotations;
                     let color = Color::WHITE;
 
-                    let tex = render_page_rect_gdk(&page, &page_size, &rect, color, flags).unwrap();
-
-                    Tile::new(id, tex)
+                    render_page_rect_gdk(&page, &page_size, &rect, color, flags).unwrap()
                 });
 
                 // store handle to the render task
-                entry.pending.insert(id, Some(handle));
+                entry.pending.insert(id, Some(task));
             }
         };
 
@@ -670,7 +666,7 @@ impl<S: TilingScheme> TileManager<S> {
         vp: &Viewport,
         page_index: usize,
         page_rect: &Rect<f64>,
-    ) -> Vec<(Rect<f64>, &Tile)> {
+    ) -> Vec<(Rect<f64>, &gdk::MemoryTexture)> {
         // viewport bounds relative to the page in pixels (area of page visible on screen)
         let visible_page = Rect::new(-page_rect.offs, vp.r.size)
             .clip(&Rect::new(point![0.0, 0.0], page_rect.size))
@@ -689,34 +685,34 @@ impl<S: TilingScheme> TileManager<S> {
         // build ordered render list
         let mut rlist: Vec<_> = entry
             .cached
-            .values()
-            .filter(|tile| {
+            .iter()
+            .filter(|(id, _)| {
                 // if the tile has a different z-level we assume that it is
                 // required (otherwise, it should have been removed in the
                 // update)
-                tile.id.z != tiles.z ||
+                id.z != tiles.z ||
                 // if z-levels match, check if the tile is inside the viewport
-                tiles.rect.contains_point(&point![tile.id.x, tile.id.y])
+                tiles.rect.contains_point(&id.xy())
             })
             .collect();
 
-        rlist.sort_unstable_by(|a, b| {
+        rlist.sort_unstable_by(|(id_a, _), (id_b, _)| {
             // sort by z-level:
             // - put all tiles with current z-level last
             // - sort rest in descending order (i.e., coarser tiles first)
 
-            if a.id.z == b.id.z {
+            if id_a.z == id_b.z {
                 // same z-levels are always equal
                 Ordering::Equal
-            } else if a.id.z == tiles.z {
+            } else if id_a.z == tiles.z {
                 // put current z-level last
                 Ordering::Greater
-            } else if b.id.z == tiles.z {
+            } else if id_b.z == tiles.z {
                 // put current z-level last
                 Ordering::Less
             } else {
                 // sort by z-level, descending
-                if a.id.z < b.id.z {
+                if id_a.z < id_b.z {
                     Ordering::Greater
                 } else {
                     Ordering::Less
@@ -726,17 +722,17 @@ impl<S: TilingScheme> TileManager<S> {
 
         rlist
             .into_iter()
-            .map(|tile| {
-                let tile_rect = self.scheme.screen_rect(vp, page_rect, &tile.id);
+            .map(|(id, data)| {
+                let tile_rect = self.scheme.screen_rect(vp, page_rect, &id);
                 let tile_rect = tile_rect.translate(&page_rect.offs.coords);
 
-                (tile_rect, tile)
+                (tile_rect, data)
             })
             .collect()
     }
 }
 
-impl TileCache {
+impl<T> TileCache<T> {
     fn empty() -> Self {
         Self {
             cached: HashMap::new(),
