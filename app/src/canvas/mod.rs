@@ -544,8 +544,6 @@ impl<S: TilingScheme> TileManager<S> {
                 // offload rendering to dedicated thread
                 let page = page.clone();
                 let handle = exec.submit(priority, move || {
-                    // TODO: struct for rendering (with some sort of factory pattern for GDK?)
-
                     let flags = RenderFlags::LcdText | RenderFlags::Annotations;
                     let color = Color::WHITE;
 
