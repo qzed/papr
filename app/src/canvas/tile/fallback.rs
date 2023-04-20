@@ -4,11 +4,11 @@ use std::ops::Range;
 use nalgebra::{point, vector};
 
 use crate::canvas::PageData;
-use crate::types::Rect;
+use crate::types::{Rect, Viewport};
 
 use super::{TileHandle, TilePriority, TileSource};
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct FallbackSpec {
     pub halo: usize,
     pub min_width: f64,
@@ -22,12 +22,18 @@ pub struct FallbackManager<H: TileHandle> {
 struct Level<H: TileHandle> {
     spec: FallbackSpec,
     cache: HashMap<usize, CacheEntry<H>>,
+    snapshot: Option<Snapshot>,
 }
 
 enum CacheEntry<H: TileHandle> {
     Empty,
     Cached(H::Data),
     Pending(H),
+}
+
+struct Snapshot {
+    scale: f64,
+    range: Range<usize>,
 }
 
 impl<H> FallbackManager<H>
@@ -40,6 +46,7 @@ where
             .map(|spec| Level {
                 spec: *spec,
                 cache: HashMap::new(),
+                snapshot: None,
             })
             .collect();
 
@@ -48,7 +55,7 @@ where
         FallbackManager { levels }
     }
 
-    pub fn update<F, S>(&mut self, source: &S, pages: &PageData<'_, F>)
+    pub fn update<F, S>(&mut self, source: &S, pages: &PageData<'_, F>, vp: &Viewport)
     where
         F: Fn(&Rect<f64>) -> Rect<f64>,
         S: TileSource<Handle = H>,
@@ -58,11 +65,18 @@ where
             // page range for which the fallbacks should be computed
             let range = level.spec.range(pages.layout.len(), pages.visible);
 
+            // check if the level needs to be updated
+            if !level.outdated(vp, &range) {
+                continue;
+            }
+
             // remove fallbacks for out-of-scope pages
             level.cache.retain(|i, _| range.contains(i));
 
             // request new fallbacks
-            for (page_index, page_rect_pt) in range.clone().zip(&pages.layout[range]) {
+            let mut complete = true;
+
+            for (page_index, page_rect_pt) in range.clone().zip(&pages.layout[range.clone()]) {
                 // transform page bounds to viewport
                 let page_rect = (pages.transform)(page_rect_pt);
 
@@ -92,6 +106,8 @@ where
                     } else {
                         task.set_priority(TilePriority::Low);
                     }
+
+                    complete = false;
                     continue;
                 }
 
@@ -111,7 +127,20 @@ where
                 // request tile
                 let task = source.request(page_index, page_size, rect, priority);
                 *fallback = CacheEntry::Pending(task);
+
+                complete = false;
             }
+
+            let snapshot = if complete {
+                Some(Snapshot {
+                    scale: vp.scale,
+                    range,
+                })
+            } else {
+                None
+            };
+
+            level.snapshot = snapshot
         }
     }
 
@@ -124,6 +153,14 @@ where
         }
 
         None
+    }
+}
+
+impl FallbackSpec {
+    fn range(&self, n: usize, base: &Range<usize>) -> Range<usize> {
+        let start = base.start.saturating_sub(self.halo);
+        let end = usize::min(base.end.saturating_add(self.halo), n);
+        start..end
     }
 }
 
@@ -148,10 +185,28 @@ where
     }
 }
 
-impl FallbackSpec {
-    fn range(self, n: usize, base: &Range<usize>) -> Range<usize> {
-        let start = base.start.saturating_sub(self.halo);
-        let end = usize::min(base.end.saturating_add(self.halo), n);
-        start..end
+impl<H> Level<H>
+where
+    H: TileHandle,
+{
+    fn outdated(&self, vp: &Viewport, range: &Range<usize>) -> bool {
+        // if no snapshot is available: level is incomplete
+        let snap = match &self.snapshot {
+            Some(snap) => snap,
+            None => return true,
+        };
+
+        // if the page range is different: needs update
+        if &snap.range != range {
+            return true;
+        }
+
+        // if the fallback should always be rendered: no need to compare the scale
+        if self.spec.min_width < 1.0 {
+            return false;
+        }
+
+        // otherwise: if the scale changed, we might need to update
+        snap.scale != vp.scale
     }
 }

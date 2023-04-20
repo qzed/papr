@@ -192,7 +192,7 @@ impl Canvas {
 
         // update fallback- and tile-caches
         let pages = PageData::new(&self.layout.rects, &visible, &transform);
-        self.fbck_manager.update(&self.source, &pages);
+        self.fbck_manager.update(&self.source, &pages, vp);
         self.tile_manager.update(&self.source, &pages, vp);
 
         // render pages
