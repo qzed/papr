@@ -29,9 +29,9 @@ pub struct Canvas {
     widget: Rc<RefCell<Option<Widget>>>,
     pages: Vec<Page>,
     layout: Layout,
-    exec: ExecutionContext,
-    tile_manager: TileManager<HybridTilingScheme>,
-    fbck_manager: FallbackManager,
+    source: PdfTileSource,
+    tile_manager: TileManager<HybridTilingScheme, Handle<gdk::MemoryTexture>>,
+    fbck_manager: FallbackManager<Handle<gdk::MemoryTexture>>,
 }
 
 impl Canvas {
@@ -94,13 +94,13 @@ impl Canvas {
 
         let executor = Executor::new(1);
         let monitor = TaskMonitor::new(notif_sender);
-        let exec = ExecutionContext::new(executor, monitor);
+        let source = PdfTileSource::new(executor, monitor);
 
         Self {
             widget,
             pages,
             layout,
-            exec,
+            source,
             tile_manager,
             fbck_manager,
         }
@@ -141,7 +141,7 @@ impl Canvas {
         };
 
         // transformation: page (bounds) from canvas to viewport
-        let transform = move |page_rect: &Rect<f64>| {
+        let page_tf = move |page_rect: &Rect<f64>| {
             // transformation matrix: page to canvas
             let m_ptc = Translation2::from(page_rect.offs);
 
@@ -164,7 +164,7 @@ impl Canvas {
 
         for (i, page_rect_pt) in self.layout.rects.iter().enumerate() {
             // transform page bounds to viewport
-            let page_rect = transform(page_rect_pt);
+            let page_rect = page_tf(page_rect_pt);
 
             // check if the page is visible
             if page_rect.intersects(&screen_rect) {
@@ -175,15 +175,15 @@ impl Canvas {
 
         // update fallback- and tile-caches
         let pages = PageData::new(&self.pages, &self.layout.rects, &visible);
-        self.fbck_manager.update(&self.exec, &pages, transform);
-        self.tile_manager.update(&self.exec, &pages, transform, vp);
+        self.fbck_manager.update(&self.source, &pages, page_tf);
+        self.tile_manager.update(&self.source, &pages, page_tf, vp);
 
         // render pages
         let iter = visible.clone().zip(&self.layout.rects[visible]);
 
         for (i, page_rect_pt) in iter {
             // transform page bounds to viewport
-            let page_rect = transform(page_rect_pt);
+            let page_rect = page_tf(page_rect_pt);
 
             // clip page bounds to visible screen area (area on screen covered by page)
             let page_clipped = page_rect.clip(&screen_rect);
@@ -243,14 +243,19 @@ impl<'a> PageData<'a> {
     }
 }
 
-struct FallbackManager {
-    levels: Vec<FallbackLevel>,
+struct FallbackManager<H: TileHandle> {
+    levels: Vec<FallbackLevel<H>>,
 }
 
-enum FallbackCacheEntry<T> {
+struct FallbackLevel<H: TileHandle> {
+    spec: FallbackSpec,
+    cache: HashMap<usize, FallbackCacheEntry<H>>,
+}
+
+enum FallbackCacheEntry<H: TileHandle> {
     Empty,
-    Cached(T),
-    Pending(Handle<T>),
+    Cached(H::Data),
+    Pending(H),
 }
 
 #[derive(Clone, Copy)]
@@ -260,12 +265,10 @@ struct FallbackSpec {
     pub tex_width: i64,
 }
 
-struct FallbackLevel {
-    spec: FallbackSpec,
-    cache: HashMap<usize, FallbackCacheEntry<gdk::MemoryTexture>>,
-}
-
-impl FallbackManager {
+impl<H> FallbackManager<H>
+where
+    H: TileHandle,
+{
     pub fn new(spec: &[FallbackSpec]) -> Self {
         let mut levels: Vec<_> = spec
             .iter()
@@ -280,9 +283,10 @@ impl FallbackManager {
         FallbackManager { levels }
     }
 
-    pub fn update<F>(&mut self, exec: &ExecutionContext, pages: &PageData<'_>, page_transform: F)
+    pub fn update<F, S>(&mut self, source: &S, pages: &PageData<'_>, page_transform: F)
     where
         F: Fn(&Rect<f64>) -> Rect<f64>,
+        S: TileSource<Handle = H>,
     {
         // process LoD levels from lowest to highest resolution
         for level in &mut self.levels {
@@ -337,27 +341,21 @@ impl FallbackManager {
                 let page_size = vector![page_size.x.round() as i64, page_size.y.round() as i64];
                 let rect = Rect::new(point![0, 0], page_size);
 
-                // offload rendering to dedicated thread
+                // set priority based on visibility
                 let priority = if pages.visible.contains(&i) {
                     TaskPriority::High
                 } else {
                     TaskPriority::Low
                 };
 
-                let page = page.clone();
-                let task = exec.submit(priority, move || {
-                    let flags = RenderFlags::LcdText | RenderFlags::Annotations;
-                    let color = Color::WHITE;
-
-                    render_page_rect_gdk(&page, &page_size, &rect, color, flags).unwrap()
-                });
-
+                // request tile
+                let task = source.request(page, page_size, rect, priority);
                 *fallback = FallbackCacheEntry::Pending(task);
             }
         }
     }
 
-    pub fn fallback(&self, page_index: usize) -> Option<&gdk::MemoryTexture> {
+    pub fn fallback(&self, page_index: usize) -> Option<&H::Data> {
         // get the cached fallback with the highest resolution
         for level in self.levels.iter().rev() {
             if let Some(FallbackCacheEntry::Cached(tex)) = level.cache.get(&page_index) {
@@ -369,9 +367,9 @@ impl FallbackManager {
     }
 }
 
-impl<T> FallbackCacheEntry<T>
+impl<H> FallbackCacheEntry<H>
 where
-    T: Send,
+    H: TileHandle,
 {
     pub fn is_render_finished(&self) -> bool {
         if let Self::Pending(task) = self {
@@ -398,19 +396,23 @@ impl FallbackSpec {
     }
 }
 
-struct TileManager<S> {
+struct TileManager<S, H: TileHandle> {
     scheme: S,
-    cache: HashMap<usize, TileCache<gdk::MemoryTexture>>,
+    cache: HashMap<usize, TileCache<H>>,
     halo: i64,
     min_retain_size: Vector2<f64>,
 }
 
-struct TileCache<T> {
-    cached: HashMap<TileId, T>,
-    pending: HashMap<TileId, Option<Handle<T>>>,
+struct TileCache<H: TileHandle> {
+    cached: HashMap<TileId, H::Data>,
+    pending: HashMap<TileId, Option<H>>,
 }
 
-impl<S: TilingScheme> TileManager<S> {
+impl<S, H> TileManager<S, H>
+where
+    S: TilingScheme,
+    H: TileHandle,
+{
     pub fn new(scheme: S) -> Self {
         Self {
             scheme,
@@ -420,14 +422,15 @@ impl<S: TilingScheme> TileManager<S> {
         }
     }
 
-    pub fn update<F>(
+    pub fn update<F, T>(
         &mut self,
-        exec: &ExecutionContext,
+        source: &T,
         pages: &PageData<'_>,
         page_transform: F,
         vp: &Viewport,
     ) where
         F: Fn(&Rect<f64>) -> Rect<f64>,
+        T: TileSource<Handle = H>,
     {
         // remove out-of-view pages from cache
         self.cache.retain(|page, _| pages.visible.contains(page));
@@ -448,19 +451,21 @@ impl<S: TilingScheme> TileManager<S> {
             let vp_adj = Viewport { r: vp.r, scale };
 
             // update tiles for page
-            self.update_page(exec, &vp_adj, page, i, &page_rect, page_rect_pt);
+            self.update_page(source, &vp_adj, page, i, &page_rect, page_rect_pt);
         }
     }
 
-    fn update_page(
+    fn update_page<T>(
         &mut self,
-        exec: &ExecutionContext,
+        source: &T,
         vp: &Viewport,
         page: &Page,
         page_index: usize,
         page_rect: &Rect<f64>,
         page_rect_pt: &Rect<f64>,
-    ) {
+    ) where
+        T: TileSource<Handle = H>,
+    {
         // viewport bounds relative to the page in pixels (area of page visible on screen)
         let visible_page = Rect::new(-page_rect.offs, vp.r.size)
             .clip(&Rect::new(point![0.0, 0.0], page_rect.size))
@@ -516,17 +521,11 @@ impl<S: TilingScheme> TileManager<S> {
                     self.scheme
                         .render_rect(&page_rect_pt.size, &page_rect.size, &id);
 
-                // offload rendering to dedicated thread
-                let page = page.clone();
-                let task = exec.submit(priority, move || {
-                    let flags = RenderFlags::LcdText | RenderFlags::Annotations;
-                    let color = Color::WHITE;
-
-                    render_page_rect_gdk(&page, &page_size, &rect, color, flags).unwrap()
-                });
+                // request tile
+                let handle = source.request(page, page_size, rect, priority);
 
                 // store handle to the render task
-                entry.pending.insert(id, Some(task));
+                entry.pending.insert(id, Some(handle));
             }
         };
 
@@ -645,7 +644,7 @@ impl<S: TilingScheme> TileManager<S> {
         vp: &Viewport,
         page_index: usize,
         page_rect: &Rect<f64>,
-    ) -> Vec<(Rect<f64>, &gdk::MemoryTexture)> {
+    ) -> Vec<(Rect<f64>, &H::Data)> {
         // viewport bounds relative to the page in pixels (area of page visible on screen)
         let visible_page = Rect::new(-page_rect.offs, vp.r.size)
             .clip(&Rect::new(point![0.0, 0.0], page_rect.size))
@@ -702,7 +701,7 @@ impl<S: TilingScheme> TileManager<S> {
         rlist
             .into_iter()
             .map(|(id, data)| {
-                let tile_rect = self.scheme.screen_rect(vp, page_rect, &id);
+                let tile_rect = self.scheme.screen_rect(vp, page_rect, id);
                 let tile_rect = tile_rect.translate(&page_rect.offs.coords);
 
                 (tile_rect, data)
@@ -711,7 +710,7 @@ impl<S: TilingScheme> TileManager<S> {
     }
 }
 
-impl<T> TileCache<T> {
+impl<T: TileHandle> TileCache<T> {
     fn empty() -> Self {
         Self {
             cached: HashMap::new(),
@@ -723,23 +722,77 @@ impl<T> TileCache<T> {
 type Executor = executor::exec::priority::Executor<TaskPriority>;
 type Handle<R> = executor::exec::priority::DropHandle<TaskPriority, R>;
 
-struct ExecutionContext {
+trait TileSource {
+    type Data;
+    type Handle: TileHandle<Data = Self::Data>;
+
+    fn request(
+        &self,
+        page: &Page,
+        page_size: Vector2<i64>,
+        rect: Rect<i64>,
+        priority: TaskPriority,
+    ) -> Self::Handle;
+}
+
+trait TileHandle {
+    type Data;
+
+    fn is_finished(&self) -> bool;
+    fn set_priority(&self, priority: TaskPriority);
+    fn join(self) -> Self::Data;
+}
+
+impl<T: Send> TileHandle for Handle<T> {
+    type Data = T;
+
+    fn is_finished(&self) -> bool {
+        Handle::is_finished(self)
+    }
+
+    fn set_priority(&self, priority: TaskPriority) {
+        Handle::set_priority(self, priority)
+    }
+
+    fn join(self) -> T {
+        Handle::join(self)
+    }
+}
+
+struct PdfTileSource {
     executor: Executor,
     monitor: TaskMonitor,
 }
 
-impl ExecutionContext {
-    pub fn new(executor: Executor, monitor: TaskMonitor) -> Self {
+impl PdfTileSource {
+    fn new(executor: Executor, monitor: TaskMonitor) -> Self {
         Self { executor, monitor }
     }
+}
 
-    pub fn submit<F, R>(&self, priority: TaskPriority, closure: F) -> Handle<R>
-    where
-        F: FnOnce() -> R + Send + 'static,
-        R: Send + 'static,
-    {
+impl TileSource for PdfTileSource {
+    type Data = gdk::MemoryTexture;
+    type Handle = Handle<gdk::MemoryTexture>;
+
+    fn request(
+        &self,
+        page: &Page,
+        page_size: Vector2<i64>,
+        rect: Rect<i64>,
+        priority: TaskPriority,
+    ) -> Self::Handle {
+        let page = page.clone();
+        let task = move || {
+            // TODO: struct for rendering (with some sort of factory pattern for GDK?)
+
+            let flags = RenderFlags::LcdText | RenderFlags::Annotations;
+            let color = Color::WHITE;
+
+            render_page_rect_gdk(&page, &page_size, &rect, color, flags).unwrap()
+        };
+
         self.executor
-            .submit_with(self.monitor.clone(), priority, closure)
+            .submit_with(self.monitor.clone(), priority, task)
             .cancel_on_drop()
     }
 }
