@@ -65,7 +65,7 @@ impl Canvas {
 
         // set up tile-manager
         let scheme = HybridTilingScheme::new(vector![1024, 1024], 3072);
-        let tile_manager = TileManager::new(scheme, 1, vector![25.0, 25.0]);
+        let tile_manager = TileManager::new(scheme, vector![1, 1], vector![25.0, 25.0]);
 
         // set up fallback-manager
         let fbck_spec = [

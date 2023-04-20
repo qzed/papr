@@ -10,7 +10,7 @@ use super::{TileHandle, TileId, TilePriority, TileSource, TilingScheme};
 pub struct TileManager<S, H: TileHandle> {
     scheme: S,
     cache: HashMap<usize, Cache<H>>,
-    halo: i64,
+    halo: Vector2<i64>,
     min_retain_size: Vector2<f64>,
 }
 
@@ -24,7 +24,7 @@ where
     S: TilingScheme,
     H: TileHandle,
 {
-    pub fn new(scheme: S, halo: i64, min_retain_size: Vector2<f64>) -> Self {
+    pub fn new(scheme: S, halo: Vector2<i64>, min_retain_size: Vector2<f64>) -> Self {
         Self {
             scheme,
             cache: HashMap::new(),
@@ -87,10 +87,10 @@ where
         // tile bounds for the extended viewport (with cached halo tiles)
         let tiles_vp = {
             let tiles_vp = Bounds {
-                x_min: tiles.rect.x_min - self.halo,
-                x_max: tiles.rect.x_max + self.halo,
-                y_min: tiles.rect.y_min - self.halo,
-                y_max: tiles.rect.y_max + self.halo,
+                x_min: tiles.rect.x_min - self.halo.x,
+                x_max: tiles.rect.x_max + self.halo.x,
+                y_min: tiles.rect.y_min - self.halo.y,
+                y_max: tiles.rect.y_max + self.halo.y,
             };
 
             tiles_vp.clip(&tiles_page)
@@ -138,7 +138,7 @@ where
             let top = Bounds {
                 x_min: tiles.rect.x_min,
                 x_max: tiles.rect.x_max,
-                y_min: (tiles.rect.y_min - self.halo).max(tiles_page.y_min),
+                y_min: (tiles.rect.y_min - self.halo.y).max(tiles_page.y_min),
                 y_max: tiles.rect.y_min,
             };
 
@@ -146,21 +146,21 @@ where
                 x_min: tiles.rect.x_min,
                 x_max: tiles.rect.x_max,
                 y_min: tiles.rect.y_max,
-                y_max: (tiles.rect.y_max + self.halo).min(tiles_page.y_max),
+                y_max: (tiles.rect.y_max + self.halo.y).min(tiles_page.y_max),
             };
 
             let left = Bounds {
-                x_min: (tiles.rect.x_min - self.halo).max(tiles_page.x_min),
+                x_min: (tiles.rect.x_min - self.halo.x).max(tiles_page.x_min),
                 x_max: tiles.rect.x_min,
-                y_min: (tiles.rect.y_min - self.halo).max(tiles_page.y_min),
-                y_max: (tiles.rect.y_max + self.halo).min(tiles_page.y_max),
+                y_min: (tiles.rect.y_min - self.halo.y).max(tiles_page.y_min),
+                y_max: (tiles.rect.y_max + self.halo.y).min(tiles_page.y_max),
             };
 
             let right = Bounds {
                 x_min: tiles.rect.x_max,
-                x_max: (tiles.rect.x_max + self.halo).min(tiles_page.x_max),
-                y_min: (tiles.rect.y_min - self.halo).max(tiles_page.y_min),
-                y_max: (tiles.rect.y_max + self.halo).min(tiles_page.y_max),
+                x_max: (tiles.rect.x_max + self.halo.x).min(tiles_page.x_max),
+                y_min: (tiles.rect.y_min - self.halo.y).max(tiles_page.y_min),
+                y_max: (tiles.rect.y_max + self.halo.y).min(tiles_page.y_max),
             };
 
             request_tiles(&bottom, TilePriority::Low);
