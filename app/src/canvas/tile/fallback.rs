@@ -53,8 +53,8 @@ where
         F: Fn(&Rect<f64>) -> Rect<f64>,
         S: TileSource<Handle = H>,
     {
-        // process LoD levels from lowest to highest resolution
-        for level in &mut self.levels {
+        // process LoD levels from highest to lowest resolution
+        for level in self.levels.iter_mut().rev() {
             // page range for which the fallbacks should be computed
             let range = level.spec.range(pages.layout.len(), pages.visible);
 
