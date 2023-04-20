@@ -1,12 +1,15 @@
+use nalgebra::{point, Point2};
+
+use crate::types::Bounds;
+
 mod scheme;
 pub use scheme::{ExactLevelTilingScheme, HybridTilingScheme, QuadTreeTilingScheme, TilingScheme};
 
 mod source;
 pub use source::{TileHandle, TilePriority, TileSource};
 
-use nalgebra::{point, Point2};
-
-use crate::types::Bounds;
+mod manager;
+pub use manager::TileManager;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TileId {
