@@ -383,10 +383,8 @@ impl FallbackManager {
     pub fn fallback(&self, page_index: usize) -> Option<&gdk::MemoryTexture> {
         // get the cached fallback with the highest resolution
         for level in self.levels.iter().rev() {
-            if let Some(fallback) = level.cache.get(&page_index) {
-                if let FallbackCacheEntry::Cached(tex) = fallback {
-                    return Some(tex);
-                }
+            if let Some(FallbackCacheEntry::Cached(tex)) = level.cache.get(&page_index) {
+                return Some(tex);
             }
         }
 
