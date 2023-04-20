@@ -33,8 +33,8 @@ pub struct Canvas {
     layout: Layout,
     executor: Executor,
     monitor: TaskMonitor,
-    manager: TileManager<HybridTilingScheme>,
-    fallbacks: Vec<HashMap<usize, FallbackCache>>,
+    tile_manager: TileManager<HybridTilingScheme>,
+    fbck_manager: FallbackManager,
 }
 
 impl Canvas {
@@ -60,7 +60,36 @@ impl Canvas {
         });
 
         let scheme = HybridTilingScheme::new(vector![1024, 1024], 3072);
-        let manager = TileManager::new(scheme);
+        let tile_manager = TileManager::new(scheme);
+
+        let fbck_spec = [
+            FallbackSpec {
+                halo: usize::MAX,
+                min_width: 0.0,
+                tex_width: 128,
+            },
+            FallbackSpec {
+                halo: 24,
+                min_width: 256.0,
+                tex_width: 256,
+            },
+            FallbackSpec {
+                halo: 1,
+                min_width: 1024.0,
+                tex_width: 1024,
+            },
+            FallbackSpec {
+                halo: 0,
+                min_width: 2048.0,
+                tex_width: 2048,
+            },
+            FallbackSpec {
+                halo: 0,
+                min_width: 3072.0,
+                tex_width: 3072,
+            },
+        ];
+        let fbck_manager = FallbackManager::new(&fbck_spec);
 
         let executor = Executor::new(1);
         let monitor = TaskMonitor::new(notif_sender);
@@ -71,8 +100,8 @@ impl Canvas {
             layout,
             executor,
             monitor,
-            manager,
-            fallbacks: vec![HashMap::new(), HashMap::new(), HashMap::new(), HashMap::new()],
+            tile_manager,
+            fbck_manager,
         }
     }
 
@@ -144,96 +173,17 @@ impl Canvas {
         }
 
         // update fallback cache
-        {
-            let lod_specs = [(usize::MAX, 0.0, 128), (24, 256.0, 256), (1, 1024.0, 1024), (0, 2048.0, 2048)];
-
-            // process LoD levels individually
-            for (lvl, (n_pages, min_width, width)) in lod_specs.iter().enumerate().rev() {
-                let fallbacks = &mut self.fallbacks[lvl];
-
-                let range_start = visible.start.saturating_sub(*n_pages);
-                let range_end = usize::min(visible.end.saturating_add(*n_pages), self.pages.len());
-                let range = range_start..range_end;
-
-                // remove fallbacks for out-of-scope pages
-                fallbacks.retain(|i, _| range.contains(i));
-
-                // request new fallbacks
-                let iter = range
-                    .clone()
-                    .zip(self.pages[range.clone()].iter_mut())
-                    .zip(&self.layout.rects[range]);
-
-                for ((i, page), page_rect_pt) in iter {
-                    // transform page bounds to viewport
-                    let page_rect = page_to_viewport(page_rect_pt);
-
-                    // skip if the page is too small and remove any entries we have for it
-                    if page_rect.size.x < *min_width {
-                        fallbacks.remove(&i);
-                        continue;
-                    }
-
-                    let fallback = fallbacks.entry(i).or_insert_with(FallbackCache::empty);
-
-                    // check if a pending fallback has finished rendering and move it
-                    if fallback
-                        .pending
-                        .as_ref()
-                        .map(|h| h.is_finished())
-                        .unwrap_or(false)
-                    {
-                        fallback.cached =
-                            Some(std::mem::take(&mut fallback.pending).unwrap().join());
-                        continue;
-                    }
-
-                    // if we have a pending fallback, update its priority
-                    if let Some(handle) = fallback.pending.as_ref() {
-                        if visible.contains(&i) {
-                            handle.set_priority(TaskPriority::High);
-                        } else {
-                            handle.set_priority(TaskPriority::Low);
-                        }
-                        continue;
-                    }
-
-                    // if we already have a rendered result, skip
-                    if fallback.cached.is_some() {
-                        continue;
-                    }
-
-                    // compute page size for given width
-                    let scale = *width as f64 / page_rect_pt.size.x;
-                    let page_size = page_rect_pt.size * scale;
-                    let page_size = vector![page_size.x.round() as i64, page_size.y.round() as i64];
-                    let rect = Rect::new(point![0, 0], page_size);
-
-                    // offload rendering to dedicated thread
-                    let monitor = self.monitor.clone();
-                    let page = page.clone();
-
-                    let priority = if visible.contains(&i) {
-                        TaskPriority::High
-                    } else {
-                        TaskPriority::Low
-                    };
-
-                    let handle = self.executor.submit_with(monitor, priority, move || {
-                        let flags = RenderFlags::LcdText | RenderFlags::Annotations;
-                        let color = Color::WHITE;
-
-                        render_page_rect_gdk(&page, &page_size, &rect, color, flags).unwrap()
-                    });
-                    let handle = handle.cancel_on_drop();
-
-                    fallback.pending = Some(handle);
-                }
-            }
-        }
+        self.fbck_manager.update(
+            &self.executor,
+            &self.monitor,
+            &self.pages,
+            &self.layout.rects,
+            page_to_viewport,
+            &visible,
+        );
 
         // update tile cache
-        self.manager.update(
+        self.tile_manager.update(
             &self.executor,
             &self.monitor,
             vp,
@@ -261,24 +211,12 @@ impl Canvas {
             snapshot.append_color(&gdk::RGBA::new(1.0, 1.0, 1.0, 1.0), &page_clipped.into());
 
             // draw fallback
-            let fallback = 'block: {
-                for fallbacks in self.fallbacks.iter().rev() {
-                    if let Some(fallback) = fallbacks.get(&i) {
-                        if let Some(tex) = fallback.cached.as_ref() {
-                            break 'block Some(tex);
-                        }
-                    }
-                }
-
-                None
-            };
-
-            if let Some(fallback) = fallback {
+            if let Some(fallback) = self.fbck_manager.fallback(i) {
                 snapshot.append_texture(fallback, &page_rect.into());
             }
 
             // draw tiles
-            let tile_list = self.manager.tiles(&vp_adj, i, &page_rect);
+            let tile_list = self.tile_manager.tiles(&vp_adj, i, &page_rect);
 
             snapshot.push_clip(&page_clipped.into());
             for (tile_rect, tile) in &tile_list {
@@ -289,9 +227,146 @@ impl Canvas {
     }
 }
 
+struct FallbackManager {
+    levels: Vec<FallbackLevel>,
+}
+
 struct FallbackCache {
     cached: Option<gdk::MemoryTexture>,
     pending: Option<Handle<gdk::MemoryTexture>>,
+}
+
+#[derive(Clone, Copy)]
+struct FallbackSpec {
+    pub halo: usize,
+    pub min_width: f64,
+    pub tex_width: i64,
+}
+
+struct FallbackLevel {
+    spec: FallbackSpec,
+    cache: HashMap<usize, FallbackCache>,
+}
+
+impl FallbackManager {
+    pub fn new(spec: &[FallbackSpec]) -> Self {
+        let mut levels: Vec<_> = spec
+            .iter()
+            .map(|spec| FallbackLevel {
+                spec: *spec,
+                cache: HashMap::new(),
+            })
+            .collect();
+
+        levels.sort_by_key(|x| x.spec.tex_width);
+
+        FallbackManager { levels }
+    }
+
+    pub fn update<F>(
+        &mut self,
+        executor: &Executor,
+        monitor: &TaskMonitor,
+        pages: &[Page],
+        page_rects: &[Rect<f64>],
+        page_transform: F,
+        visible: &Range<usize>,
+    ) where
+        F: Fn(&Rect<f64>) -> Rect<f64>,
+    {
+        // process LoD levels from lowest to highest resolution
+        for level in &mut self.levels {
+            // page range for which the fallbacks should be computed
+            let range = level.spec.range(pages.len(), visible);
+
+            // remove fallbacks for out-of-scope pages
+            level.cache.retain(|i, _| range.contains(i));
+
+            // request new fallbacks
+            let iter = range
+                .clone()
+                .zip(&pages[range.clone()])
+                .zip(&page_rects[range]);
+
+            for ((i, page), page_rect_pt) in iter {
+                // transform page bounds to viewport
+                let page_rect = page_transform(page_rect_pt);
+
+                // skip if the page is too small and remove any entries we have for it
+                if page_rect.size.x < level.spec.min_width {
+                    level.cache.remove(&i);
+                    continue;
+                }
+
+                let fallback = level.cache.entry(i).or_insert_with(FallbackCache::empty);
+
+                // check if a pending fallback has finished rendering and move it
+                if fallback
+                    .pending
+                    .as_ref()
+                    .map(|h| h.is_finished())
+                    .unwrap_or(false)
+                {
+                    fallback.cached = Some(std::mem::take(&mut fallback.pending).unwrap().join());
+                    continue;
+                }
+
+                // if we have a pending fallback, update its priority
+                if let Some(handle) = fallback.pending.as_ref() {
+                    if visible.contains(&i) {
+                        handle.set_priority(TaskPriority::High);
+                    } else {
+                        handle.set_priority(TaskPriority::Low);
+                    }
+                    continue;
+                }
+
+                // if we already have a rendered result, skip
+                if fallback.cached.is_some() {
+                    continue;
+                }
+
+                // compute page size for given width
+                let scale = level.spec.tex_width as f64 / page_rect_pt.size.x;
+                let page_size = page_rect_pt.size * scale;
+                let page_size = vector![page_size.x.round() as i64, page_size.y.round() as i64];
+                let rect = Rect::new(point![0, 0], page_size);
+
+                // offload rendering to dedicated thread
+                let monitor = monitor.clone();
+                let page = page.clone();
+
+                let priority = if visible.contains(&i) {
+                    TaskPriority::High
+                } else {
+                    TaskPriority::Low
+                };
+
+                let handle = executor.submit_with(monitor, priority, move || {
+                    let flags = RenderFlags::LcdText | RenderFlags::Annotations;
+                    let color = Color::WHITE;
+
+                    render_page_rect_gdk(&page, &page_size, &rect, color, flags).unwrap()
+                });
+                let handle = handle.cancel_on_drop();
+
+                fallback.pending = Some(handle);
+            }
+        }
+    }
+
+    pub fn fallback(&self, page_index: usize) -> Option<&gdk::MemoryTexture> {
+        // get the cached fallback with the highest resolution
+        for level in self.levels.iter().rev() {
+            if let Some(fallback) = level.cache.get(&page_index) {
+                if let Some(tex) = fallback.cached.as_ref() {
+                    return Some(tex);
+                }
+            }
+        }
+
+        None
+    }
 }
 
 impl FallbackCache {
@@ -300,6 +375,14 @@ impl FallbackCache {
             cached: None,
             pending: None,
         }
+    }
+}
+
+impl FallbackSpec {
+    fn range(self, n: usize, base: &Range<usize>) -> Range<usize> {
+        let start = base.start.saturating_sub(self.halo);
+        let end = usize::min(base.end.saturating_add(self.halo), n);
+        start..end
     }
 }
 
