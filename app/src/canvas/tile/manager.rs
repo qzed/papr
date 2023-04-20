@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use nalgebra::{point, vector, Vector2};
+use nalgebra::{point, Vector2};
 use pdfium::doc::Page;
 
 use crate::canvas::PageData;
@@ -25,12 +25,12 @@ where
     S: TilingScheme,
     H: TileHandle,
 {
-    pub fn new(scheme: S) -> Self {
+    pub fn new(scheme: S, halo: i64, min_retain_size: Vector2<f64>) -> Self {
         Self {
             scheme,
             cache: HashMap::new(),
-            halo: 1,
-            min_retain_size: vector![25.0, 25.0],
+            halo,
+            min_retain_size,
         }
     }
 
