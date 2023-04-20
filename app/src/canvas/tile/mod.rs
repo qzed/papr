@@ -1,6 +1,9 @@
 mod scheme;
 pub use scheme::{ExactLevelTilingScheme, HybridTilingScheme, QuadTreeTilingScheme, TilingScheme};
 
+mod source;
+pub use source::{TileHandle, TilePriority, TileSource};
+
 use nalgebra::{point, Point2};
 
 use crate::types::Bounds;

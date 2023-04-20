@@ -11,8 +11,6 @@ use gtk::{Snapshot, Widget};
 use na::{point, vector, Similarity2, Translation2, Vector2};
 use nalgebra as na;
 
-use num_enum::{IntoPrimitive, TryFromPrimitive};
-
 use pdfium::bitmap::{Bitmap, BitmapFormat, Color};
 use pdfium::doc::{Page, PageRenderLayout, PageRotation, RenderFlags};
 
@@ -23,7 +21,7 @@ mod layout;
 pub use layout::{HorizontalLayout, Layout, LayoutProvider, VerticalLayout};
 
 mod tile;
-use self::tile::{HybridTilingScheme, TileId, TilingScheme};
+use self::tile::{HybridTilingScheme, TileHandle, TileId, TilePriority, TileSource, TilingScheme};
 
 pub struct Canvas {
     widget: Rc<RefCell<Option<Widget>>>,
@@ -328,9 +326,9 @@ where
                 // if we have a pending fallback, update its priority
                 if let FallbackCacheEntry::Pending(task) = fallback {
                     if pages.visible.contains(&i) {
-                        task.set_priority(TaskPriority::High);
+                        task.set_priority(TilePriority::High);
                     } else {
-                        task.set_priority(TaskPriority::Low);
+                        task.set_priority(TilePriority::Low);
                     }
                     continue;
                 }
@@ -343,9 +341,9 @@ where
 
                 // set priority based on visibility
                 let priority = if pages.visible.contains(&i) {
-                    TaskPriority::High
+                    TilePriority::High
                 } else {
-                    TaskPriority::Low
+                    TilePriority::Low
                 };
 
                 // request tile
@@ -530,7 +528,7 @@ where
         };
 
         // request new tiles in view if not cached or pending
-        request_tiles(&tiles.rect, TaskPriority::Medium);
+        request_tiles(&tiles.rect, TilePriority::Medium);
 
         // pre-request new tiles around view with lower priority
         {
@@ -562,10 +560,10 @@ where
                 y_max: (tiles.rect.y_max + self.halo).min(tiles_page.y_max),
             };
 
-            request_tiles(&bottom, TaskPriority::Low);
-            request_tiles(&top, TaskPriority::Low);
-            request_tiles(&left, TaskPriority::Low);
-            request_tiles(&right, TaskPriority::Low);
+            request_tiles(&bottom, TilePriority::Low);
+            request_tiles(&top, TilePriority::Low);
+            request_tiles(&left, TilePriority::Low);
+            request_tiles(&right, TilePriority::Low);
         }
 
         // move newly rendered tiles to cached map
@@ -719,45 +717,8 @@ impl<T: TileHandle> TileCache<T> {
     }
 }
 
-type Executor = executor::exec::priority::Executor<TaskPriority>;
-type Handle<R> = executor::exec::priority::DropHandle<TaskPriority, R>;
-
-trait TileSource {
-    type Data;
-    type Handle: TileHandle<Data = Self::Data>;
-
-    fn request(
-        &self,
-        page: &Page,
-        page_size: Vector2<i64>,
-        rect: Rect<i64>,
-        priority: TaskPriority,
-    ) -> Self::Handle;
-}
-
-trait TileHandle {
-    type Data;
-
-    fn is_finished(&self) -> bool;
-    fn set_priority(&self, priority: TaskPriority);
-    fn join(self) -> Self::Data;
-}
-
-impl<T: Send> TileHandle for Handle<T> {
-    type Data = T;
-
-    fn is_finished(&self) -> bool {
-        Handle::is_finished(self)
-    }
-
-    fn set_priority(&self, priority: TaskPriority) {
-        Handle::set_priority(self, priority)
-    }
-
-    fn join(self) -> T {
-        Handle::join(self)
-    }
-}
+type Executor = executor::exec::priority::Executor<TilePriority>;
+type Handle<R> = executor::exec::priority::DropHandle<TilePriority, R>;
 
 struct PdfTileSource {
     executor: Executor,
@@ -779,7 +740,7 @@ impl TileSource for PdfTileSource {
         page: &Page,
         page_size: Vector2<i64>,
         rect: Rect<i64>,
-        priority: TaskPriority,
+        priority: TilePriority,
     ) -> Self::Handle {
         let page = page.clone();
         let task = move || {
@@ -794,28 +755,6 @@ impl TileSource for PdfTileSource {
         self.executor
             .submit_with(self.monitor.clone(), priority, task)
             .cancel_on_drop()
-    }
-}
-
-#[repr(u8)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, IntoPrimitive, TryFromPrimitive)]
-enum TaskPriority {
-    Low = 0,
-    Medium = 1,
-    High = 2,
-}
-
-impl executor::exec::priority::Priority for TaskPriority {
-    fn count() -> u8 {
-        3
-    }
-
-    fn from_value(value: u8) -> Option<Self> {
-        Self::try_from_primitive(value).ok()
-    }
-
-    fn as_value(&self) -> u8 {
-        *self as _
     }
 }
 
