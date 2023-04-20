@@ -538,9 +538,10 @@ impl<S: TilingScheme> TileManager<S> {
             }
         };
 
-        // request new tiles if not cached or pending
+        // request new tiles in view if not cached or pending
         request_tiles(&tiles.rect, TaskPriority::Medium);
 
+        // pre-request new tiles around view with lower priority
         {
             let top = Bounds {
                 x_min: tiles.rect.x_min,
