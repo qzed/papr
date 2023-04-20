@@ -194,7 +194,22 @@ impl Canvas {
             let scale = page_rect.size.x / page_rect_pt.size.x;
             let vp_adj = Viewport { r: vp.r, scale };
 
-            // draw background
+            // draw page shadow
+            {
+                let bounds = page_rect.into();
+                let radius = gtk::gsk::graphene::Size::new(0.0, 0.0);
+                let outline = gtk::gsk::RoundedRect::new(bounds, radius, radius, radius, radius);
+
+                let color = gdk::RGBA::new(0.0, 0.0, 0.0, 0.5);
+
+                let shift = vector![0.0, 1.0];
+                let spread = 0.0;
+                let blur = 3.5;
+
+                snapshot.append_outset_shadow(&outline, &color, shift.x, shift.y, spread, blur)
+            }
+
+            // draw page background
             snapshot.append_color(&gdk::RGBA::new(1.0, 1.0, 1.0, 1.0), &page_clipped.into());
 
             // draw fallback
