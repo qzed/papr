@@ -496,45 +496,43 @@ impl<S: TilingScheme> TileManager<S> {
             .or_insert_with(TileCache::empty);
 
         // helper for requesting tiles
-        let mut request_tile = |x, y, priority| {
-            let id = TileId::new(page_index, x, y, tiles.z);
+        let mut request_tiles = |tile_rect: &Bounds<i64>, priority| {
+            for (x, y) in tile_rect.range_iter() {
+                let id = TileId::new(page_index, x, y, tiles.z);
 
-            // check if we already have the tile
-            if entry.cached.contains_key(&id) {
-                return;
-            }
-
-            // check if we already requested the tile and update the priority
-            if let Some(entry) = entry.pending.get(&id) {
-                if let Some(task) = entry {
-                    task.set_priority(priority);
+                // check if we already have the tile
+                if entry.cached.contains_key(&id) {
+                    return;
                 }
-                return;
-            }
 
-            // compute page size and tile bounds
-            let (page_size, rect) =
-                self.scheme
-                    .render_rect(&page_rect_pt.size, &page_rect.size, &id);
+                // check if we already requested the tile and update the priority
+                if let Some(entry) = entry.pending.get(&id) {
+                    if let Some(task) = entry {
+                        task.set_priority(priority);
+                    }
+                    return;
+                }
 
-            // offload rendering to dedicated thread
-            let page = page.clone();
-            let handle = exec.submit(priority, move || {
-                let flags = RenderFlags::LcdText | RenderFlags::Annotations;
-                let color = Color::WHITE;
+                // compute page size and tile bounds
+                let (page_size, rect) =
+                    self.scheme
+                        .render_rect(&page_rect_pt.size, &page_rect.size, &id);
 
-                let texture = render_page_rect_gdk(&page, &page_size, &rect, color, flags).unwrap();
+                // offload rendering to dedicated thread
+                let page = page.clone();
+                let handle = exec.submit(priority, move || {
+                    // TODO: struct for rendering (with some sort of factory pattern for GDK?)
 
-                Tile::new(id, texture)
-            });
+                    let flags = RenderFlags::LcdText | RenderFlags::Annotations;
+                    let color = Color::WHITE;
 
-            // store handle to the render task
-            entry.pending.insert(id, Some(handle));
-        };
+                    let tex = render_page_rect_gdk(&page, &page_size, &rect, color, flags).unwrap();
 
-        let mut request_tiles = |tiles: &Bounds<i64>, priority| {
-            for (x, y) in tiles.range_iter() {
-                request_tile(x, y, priority);
+                    Tile::new(id, tex)
+                });
+
+                // store handle to the render task
+                entry.pending.insert(id, Some(handle));
             }
         };
 
