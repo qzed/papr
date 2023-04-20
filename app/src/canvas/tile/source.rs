@@ -1,6 +1,5 @@
 use executor::exec::priority::DropHandle;
 use nalgebra::Vector2;
-use pdfium::doc::Page;
 
 use crate::types::Rect;
 
@@ -10,7 +9,7 @@ pub trait TileSource {
 
     fn request(
         &self,
-        page: &Page,
+        page_index: usize,
         page_size: Vector2<i64>,
         rect: Rect<i64>,
         priority: TilePriority,

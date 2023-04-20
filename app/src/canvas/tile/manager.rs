@@ -1,7 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
 use nalgebra::{point, Vector2};
-use pdfium::doc::Page;
 
 use crate::canvas::PageData;
 use crate::types::{Bounds, Rect, Viewport};
@@ -34,13 +33,8 @@ where
         }
     }
 
-    pub fn update<F, T>(
-        &mut self,
-        source: &T,
-        pages: &PageData<'_>,
-        page_transform: F,
-        vp: &Viewport,
-    ) where
+    pub fn update<F, T>(&mut self, source: &T, pages: &PageData<'_, F>, vp: &Viewport)
+    where
         F: Fn(&Rect<f64>) -> Rect<f64>,
         T: TileSource<Handle = H>,
     {
@@ -51,19 +45,18 @@ where
         let iter = pages
             .visible
             .clone()
-            .zip(&pages.pages[pages.visible.clone()])
             .zip(&pages.layout[pages.visible.clone()]);
 
-        for ((i, page), page_rect_pt) in iter {
+        for (page_index, page_rect_pt) in iter {
             // transform page bounds to viewport
-            let page_rect = page_transform(page_rect_pt);
+            let page_rect = (pages.transform)(page_rect_pt);
 
             // recompute scale for rounded page
             let scale = page_rect.size.x / page_rect_pt.size.x;
             let vp_adj = Viewport { r: vp.r, scale };
 
             // update tiles for page
-            self.update_page(source, &vp_adj, page, i, &page_rect, page_rect_pt);
+            self.update_page(source, &vp_adj, page_index, &page_rect, page_rect_pt);
         }
     }
 
@@ -71,7 +64,6 @@ where
         &mut self,
         source: &T,
         vp: &Viewport,
-        page: &Page,
         page_index: usize,
         page_rect: &Rect<f64>,
         page_rect_pt: &Rect<f64>,
@@ -131,7 +123,7 @@ where
                         .render_rect(&page_rect_pt.size, &page_rect.size, &id);
 
                 // request tile
-                let handle = source.request(page, page_size, rect, priority);
+                let handle = source.request(page_index, page_size, rect, priority);
 
                 // store handle to the render task
                 entry.pending.insert(id, Some(handle));

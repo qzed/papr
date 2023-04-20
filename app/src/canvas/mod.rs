@@ -22,25 +22,30 @@ mod tile;
 use self::tile::{FallbackManager, FallbackSpec};
 use self::tile::{HybridTilingScheme, TileManager, TilePriority, TileSource};
 
-pub struct PageData<'a> {
-    pub pages: &'a [Page],
+pub struct PageData<'a, F>
+where
+    F: Fn(&Rect<f64>) -> Rect<f64>,
+{
     pub layout: &'a [Rect<f64>],
     pub visible: &'a Range<usize>,
+    pub transform: &'a F,
 }
 
-impl<'a> PageData<'a> {
-    pub fn new(pages: &'a [Page], layout: &'a [Rect<f64>], visible: &'a Range<usize>) -> Self {
+impl<'a, F> PageData<'a, F>
+where
+    F: Fn(&Rect<f64>) -> Rect<f64>,
+{
+    pub fn new(layout: &'a [Rect<f64>], visible: &'a Range<usize>, transform: &'a F) -> Self {
         Self {
-            pages,
             layout,
             visible,
+            transform,
         }
     }
 }
 
 pub struct Canvas {
     widget: Rc<RefCell<Option<Widget>>>,
-    pages: Vec<Page>,
     layout: Layout,
     source: PdfTileSource,
     tile_manager: TileManager<HybridTilingScheme, Handle<gdk::MemoryTexture>>,
@@ -107,11 +112,10 @@ impl Canvas {
 
         let executor = Executor::new(1);
         let monitor = TaskMonitor::new(notif_sender);
-        let source = PdfTileSource::new(executor, monitor);
+        let source = PdfTileSource::new(executor, monitor, pages);
 
         Self {
             widget,
-            pages,
             layout,
             source,
             tile_manager,
@@ -154,7 +158,7 @@ impl Canvas {
         };
 
         // transformation: page (bounds) from canvas to viewport
-        let page_tf = move |page_rect: &Rect<f64>| {
+        let transform = move |page_rect: &Rect<f64>| {
             // transformation matrix: page to canvas
             let m_ptc = Translation2::from(page_rect.offs);
 
@@ -177,7 +181,7 @@ impl Canvas {
 
         for (i, page_rect_pt) in self.layout.rects.iter().enumerate() {
             // transform page bounds to viewport
-            let page_rect = page_tf(page_rect_pt);
+            let page_rect = transform(page_rect_pt);
 
             // check if the page is visible
             if page_rect.intersects(&screen_rect) {
@@ -187,16 +191,16 @@ impl Canvas {
         }
 
         // update fallback- and tile-caches
-        let pages = PageData::new(&self.pages, &self.layout.rects, &visible);
-        self.fbck_manager.update(&self.source, &pages, page_tf);
-        self.tile_manager.update(&self.source, &pages, page_tf, vp);
+        let pages = PageData::new(&self.layout.rects, &visible, &transform);
+        self.fbck_manager.update(&self.source, &pages);
+        self.tile_manager.update(&self.source, &pages, vp);
 
         // render pages
         let iter = visible.clone().zip(&self.layout.rects[visible]);
 
         for (i, page_rect_pt) in iter {
             // transform page bounds to viewport
-            let page_rect = page_tf(page_rect_pt);
+            let page_rect = transform(page_rect_pt);
 
             // clip page bounds to visible screen area (area on screen covered by page)
             let page_clipped = page_rect.clip(&screen_rect);
@@ -263,11 +267,16 @@ impl executor::exec::Monitor for TaskMonitor {
 struct PdfTileSource {
     executor: Executor,
     monitor: TaskMonitor,
+    pages: Vec<Page>,
 }
 
 impl PdfTileSource {
-    fn new(executor: Executor, monitor: TaskMonitor) -> Self {
-        Self { executor, monitor }
+    fn new(executor: Executor, monitor: TaskMonitor, pages: Vec<Page>) -> Self {
+        Self {
+            executor,
+            monitor,
+            pages,
+        }
     }
 }
 
@@ -277,12 +286,12 @@ impl TileSource for PdfTileSource {
 
     fn request(
         &self,
-        page: &Page,
+        page_index: usize,
         page_size: Vector2<i64>,
         rect: Rect<i64>,
         priority: TilePriority,
     ) -> Self::Handle {
-        let page = page.clone();
+        let page = self.pages[page_index].clone();
         let task = move || {
             // TODO: struct for rendering (with some sort of factory pattern for GDK?)
 

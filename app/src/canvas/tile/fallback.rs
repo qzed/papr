@@ -48,7 +48,7 @@ where
         FallbackManager { levels }
     }
 
-    pub fn update<F, S>(&mut self, source: &S, pages: &PageData<'_>, page_transform: F)
+    pub fn update<F, S>(&mut self, source: &S, pages: &PageData<'_, F>)
     where
         F: Fn(&Rect<f64>) -> Rect<f64>,
         S: TileSource<Handle = H>,
@@ -56,28 +56,23 @@ where
         // process LoD levels from lowest to highest resolution
         for level in &mut self.levels {
             // page range for which the fallbacks should be computed
-            let range = level.spec.range(pages.pages.len(), pages.visible);
+            let range = level.spec.range(pages.layout.len(), pages.visible);
 
             // remove fallbacks for out-of-scope pages
             level.cache.retain(|i, _| range.contains(i));
 
             // request new fallbacks
-            let iter = range
-                .clone()
-                .zip(&pages.pages[range.clone()])
-                .zip(&pages.layout[range]);
-
-            for ((i, page), page_rect_pt) in iter {
+            for (page_index, page_rect_pt) in range.clone().zip(&pages.layout[range]) {
                 // transform page bounds to viewport
-                let page_rect = page_transform(page_rect_pt);
+                let page_rect = (pages.transform)(page_rect_pt);
 
                 // skip if the page is too small and remove any entries we have for it
                 if page_rect.size.x < level.spec.min_width {
-                    level.cache.remove(&i);
+                    level.cache.remove(&page_index);
                     continue;
                 }
 
-                let fallback = level.cache.entry(i).or_insert(CacheEntry::Empty);
+                let fallback = level.cache.entry(page_index).or_insert(CacheEntry::Empty);
 
                 // if we already have a rendered result, skip
                 if let CacheEntry::Cached(_) = fallback {
@@ -92,7 +87,7 @@ where
 
                 // if we have a pending fallback, update its priority
                 if let CacheEntry::Pending(task) = fallback {
-                    if pages.visible.contains(&i) {
+                    if pages.visible.contains(&page_index) {
                         task.set_priority(TilePriority::High);
                     } else {
                         task.set_priority(TilePriority::Low);
@@ -107,14 +102,14 @@ where
                 let rect = Rect::new(point![0, 0], page_size);
 
                 // set priority based on visibility
-                let priority = if pages.visible.contains(&i) {
+                let priority = if pages.visible.contains(&page_index) {
                     TilePriority::High
                 } else {
                     TilePriority::Low
                 };
 
                 // request tile
-                let task = source.request(page, page_size, rect, priority);
+                let task = source.request(page_index, page_size, rect, priority);
                 *fallback = CacheEntry::Pending(task);
             }
         }
