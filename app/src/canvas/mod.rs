@@ -18,9 +18,9 @@ use crate::types::{Bounds, Rect, Viewport};
 mod layout;
 pub use layout::{HorizontalLayout, Layout, LayoutProvider, VerticalLayout};
 
-mod tile;
-use self::tile::{FallbackManager, FallbackSpec};
-use self::tile::{HybridTilingScheme, TileManager, TilePriority, TileSource};
+mod render;
+use self::render::{FallbackManager, FallbackSpec};
+use self::render::{HybridTilingScheme, TileManager, TilePriority, TileSource};
 
 pub struct PageData<'a, F>
 where
