@@ -71,28 +71,28 @@ impl Canvas {
         let fbck_spec = [
             FallbackSpec {
                 halo: usize::MAX,
-                min_width: 0.0,
-                tex_width: 128,
+                render_threshold: vector![0.0, 0.0],
+                render_limits: vector![128, 128],
             },
             FallbackSpec {
                 halo: 24,
-                min_width: 256.0,
-                tex_width: 256,
+                render_threshold: vector![256.0, 256.0],
+                render_limits: vector![256, 256],
             },
             FallbackSpec {
                 halo: 1,
-                min_width: 1024.0,
-                tex_width: 1024,
+                render_threshold: vector![1024.0, 1024.0],
+                render_limits: vector![1024, 1024],
             },
             FallbackSpec {
                 halo: 0,
-                min_width: 2048.0,
-                tex_width: 2048,
+                render_threshold: vector![2048.0, 2048.0],
+                render_limits: vector![2048, 2048],
             },
             FallbackSpec {
                 halo: 0,
-                min_width: 3072.0,
-                tex_width: 3072,
+                render_threshold: vector![3072.0, 3072.0],
+                render_limits: vector![3072, 3072],
             },
         ];
         let fbck_manager = FallbackManager::new(&fbck_spec);

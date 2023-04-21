@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::ops::Range;
 
-use nalgebra::{point, vector};
+use nalgebra::{point, vector, Vector2};
 
 use crate::canvas::PageData;
 use crate::types::{Rect, Viewport};
@@ -10,9 +10,14 @@ use super::{TileHandle, TilePriority, TileSource};
 
 #[derive(Clone, Copy, Debug)]
 pub struct FallbackSpec {
+    /// Number of pages around the visible range for which to render fallbacks
     pub halo: usize,
-    pub min_width: f64,
-    pub tex_width: i64,
+
+    /// Minimum width and/or height required for a fallback to be rendered
+    pub render_threshold: Vector2<f64>,
+
+    /// Maximum bitmap size for the rendered page
+    pub render_limits: Vector2<i64>,
 }
 
 pub struct FallbackManager<H: TileHandle> {
@@ -50,7 +55,7 @@ where
             })
             .collect();
 
-        levels.sort_by_key(|x| x.spec.tex_width);
+        levels.sort_by_key(|x| (x.spec.render_limits.x, x.spec.render_limits.y));
 
         FallbackManager { levels }
     }
@@ -81,7 +86,9 @@ where
                 let page_rect = (pages.transform)(page_rect_pt);
 
                 // skip if the page is too small and remove any entries we have for it
-                if page_rect.size.x < level.spec.min_width {
+                if page_rect.size.x < level.spec.render_threshold.x
+                    && page_rect.size.y < level.spec.render_threshold.y
+                {
                     level.cache.remove(&page_index);
                     continue;
                 }
@@ -111,11 +118,18 @@ where
                     continue;
                 }
 
-                // compute page size for given width
-                let scale = level.spec.tex_width as f64 / page_rect_pt.size.x;
-                let page_size = page_rect_pt.size * scale;
-                let page_size = vector![page_size.x.round() as i64, page_size.y.round() as i64];
-                let rect = Rect::new(point![0, 0], page_size);
+                // compute page size for given limits
+                let (page_size, rect) = {
+                    let scale_x = level.spec.render_limits.x as f64 / page_rect_pt.size.x;
+                    let scale_y = level.spec.render_limits.y as f64 / page_rect_pt.size.y;
+                    let scale = scale_x.min(scale_y);
+
+                    let page_size = page_rect_pt.size * scale;
+                    let page_size = vector![page_size.x.round() as i64, page_size.y.round() as i64];
+                    let rect = Rect::new(point![0, 0], page_size);
+
+                    (page_size, rect)
+                };
 
                 // set priority based on visibility
                 let priority = if pages.visible.contains(&page_index) {
@@ -202,7 +216,7 @@ where
         }
 
         // if the fallback should always be rendered: no need to compare the scale
-        if self.spec.min_width < 1.0 {
+        if self.spec.render_threshold.x < 1.0 || self.spec.render_threshold.y < 1.0 {
             return false;
         }
 
