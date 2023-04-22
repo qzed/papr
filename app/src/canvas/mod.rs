@@ -315,7 +315,7 @@ fn render_page_rect(
     flags: RenderFlags,
 ) -> pdfium::Result<Box<[u8]>> {
     // allocate tile bitmap buffer
-    let stride = rect.size.x as usize * 4;
+    let stride = rect.size.x as usize * 3;
     let mut buffer = vec![0; stride * rect.size.y as usize];
 
     // wrap buffer in bitmap
@@ -323,7 +323,7 @@ fn render_page_rect(
         page.library().clone(),
         rect.size.x as _,
         rect.size.y as _,
-        BitmapFormat::Bgra,
+        BitmapFormat::Bgr,
         &mut buffer[..],
         stride as _,
     )?;
@@ -357,12 +357,12 @@ fn render_page_rect_gdk(
     let buf = render_page_rect(page, page_size, rect, background, flags)?;
 
     // create GTK/GDK texture
-    let stride = rect.size.x as usize * 4;
+    let stride = rect.size.x as usize * 3;
     let bytes = glib::Bytes::from_owned(buf);
     let texture = gdk::MemoryTexture::new(
         rect.size.x as _,
         rect.size.y as _,
-        gdk::MemoryFormat::B8g8r8a8,
+        gdk::MemoryFormat::B8g8r8,
         &bytes,
         stride as _,
     );
