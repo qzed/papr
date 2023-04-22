@@ -22,6 +22,7 @@ impl TileId {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
 pub struct TileRect {
     pub rect: Bounds<i64>,
     pub z: i64,
