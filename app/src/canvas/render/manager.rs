@@ -106,7 +106,7 @@ where
 
                 // check if we already have the tile
                 if entry.cached.contains_key(&id) {
-                    return;
+                    continue;
                 }
 
                 // check if we already requested the tile and update the priority
@@ -114,7 +114,7 @@ where
                     if let Some(task) = entry {
                         task.set_priority(priority);
                     }
-                    return;
+                    continue;
                 }
 
                 // compute page size and tile bounds
