@@ -293,8 +293,6 @@ impl TileSource for PdfTileSource {
     ) -> Self::Handle {
         let page = self.pages[page_index].clone();
         let task = move || {
-            // TODO: struct for rendering (with some sort of factory pattern for GDK?)
-
             let flags = RenderFlags::LcdText | RenderFlags::Annotations;
             let color = Color::WHITE;
 
