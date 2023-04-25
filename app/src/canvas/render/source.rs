@@ -8,7 +8,7 @@ pub trait TileSource {
     type Handle: TileHandle<Data = Self::Data>;
 
     fn request(
-        &self,
+        &mut self,
         page_index: usize,
         page_size: Vector2<i64>,
         rect: Rect<i64>,

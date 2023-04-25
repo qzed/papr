@@ -33,7 +33,7 @@ where
         }
     }
 
-    pub fn update<F, T>(&mut self, source: &T, pages: &PageData<'_, F>, vp: &Viewport)
+    pub fn update<F, T>(&mut self, source: &mut T, pages: &PageData<'_, F>, vp: &Viewport)
     where
         F: Fn(&Rect<f64>) -> Rect<f64>,
         T: TileSource<Handle = H>,
@@ -62,7 +62,7 @@ where
 
     fn update_page<T>(
         &mut self,
-        source: &T,
+        source: &mut T,
         vp: &Viewport,
         page_index: usize,
         page_rect: &Rect<f64>,

@@ -60,7 +60,7 @@ where
         FallbackManager { levels }
     }
 
-    pub fn update<F, S>(&mut self, source: &S, pages: &PageData<'_, F>, vp: &Viewport)
+    pub fn update<F, S>(&mut self, source: &mut S, pages: &PageData<'_, F>, vp: &Viewport)
     where
         F: Fn(&Rect<f64>) -> Rect<f64>,
         S: TileSource<Handle = H>,
