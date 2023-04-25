@@ -10,9 +10,8 @@ use na::{point, vector, Similarity2, Translation2, Vector2};
 use nalgebra as na;
 
 use pdfium::bitmap::{Bitmap, BitmapFormat, Color};
-use pdfium::doc::{Page, PageRenderLayout, PageRotation, RenderFlags};
+use pdfium::doc::{Document, Page, PageRenderLayout, PageRotation, RenderFlags};
 
-use crate::pdf::Document;
 use crate::types::{Bounds, Rect, Viewport};
 
 mod layout;
@@ -55,8 +54,8 @@ pub struct Canvas {
 impl Canvas {
     pub fn create(doc: Document) -> Self {
         // load pages
-        let pages: Vec<_> = (0..(doc.pdf.pages().count()))
-            .map(|i| doc.pdf.pages().get(i).unwrap())
+        let pages: Vec<_> = (0..(doc.pages().count()))
+            .map(|i| doc.pages().get(i).unwrap())
             .collect();
 
         // compute layout

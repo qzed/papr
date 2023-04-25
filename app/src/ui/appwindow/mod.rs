@@ -1,5 +1,4 @@
 use crate::canvas::Canvas;
-use crate::pdf::Document;
 
 use gtk::glib::clone;
 use gtk::prelude::FileExt;
@@ -41,7 +40,9 @@ impl AppWindow {
             let (data, _etag) = file.load_bytes_future().await.expect("failed to load file");
             let data = data.to_vec();
 
-            let doc = Document::load_bytes(data).unwrap();
+            let pdflib = pdfium::Library::init().unwrap();
+            let doc = pdflib.load_buffer(data, None).unwrap();
+
             let canvas = Canvas::create(doc);
 
             println!("file loaded, creating canvas");
