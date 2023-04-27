@@ -191,6 +191,11 @@ impl Canvas {
             }
         }
 
+        // ensure that we have a valid range if there are no visible pages
+        if visible.start > visible.end {
+            visible = 0..0;
+        }
+
         // update fallback- and tile-caches
         self.provider.request(&visible, |source| {
             let pages = PageData::new(&self.layout.rects, &visible, &transform);
