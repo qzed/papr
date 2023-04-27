@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 use executor::exec::priority::DropHandle;
 use nalgebra::Vector2;
 
@@ -6,6 +8,9 @@ use crate::types::Rect;
 pub trait TileSource {
     type Data;
     type Handle: TileHandle<Data = Self::Data>;
+
+    fn prepare(&mut self, pages: &Range<usize>);
+    fn release(&mut self);
 
     fn request(
         &mut self,

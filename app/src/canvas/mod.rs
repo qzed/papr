@@ -190,9 +190,13 @@ impl Canvas {
         }
 
         // update fallback- and tile-caches
+        self.source.prepare(&visible);
+
         let pages = PageData::new(&self.layout.rects, &visible, &transform);
         self.fbck_manager.update(&mut self.source, &pages, vp);
         self.tile_manager.update(&mut self.source, &pages, vp);
+
+        self.source.release();
 
         // render pages
         let iter = visible.clone().zip(&self.layout.rects[visible]);
@@ -282,6 +286,9 @@ impl PdfTileSource {
 impl TileSource for PdfTileSource {
     type Data = gdk::MemoryTexture;
     type Handle = Handle<gdk::MemoryTexture>;
+
+    fn prepare(&mut self, _pages: &Range<usize>) {}
+    fn release(&mut self) {}
 
     fn request(
         &mut self,
