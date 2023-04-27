@@ -5,12 +5,17 @@ use nalgebra::Vector2;
 
 use crate::types::Rect;
 
+pub trait TileProvider {
+    type Source<'a>: TileSource + 'a;
+
+    fn request<F, R>(&mut self, pages: &Range<usize>, f: F) -> R
+    where
+        F: FnOnce(&mut Self::Source<'_>) -> R;
+}
+
 pub trait TileSource {
     type Data;
     type Handle: TileHandle<Data = Self::Data>;
-
-    fn prepare(&mut self, pages: &Range<usize>);
-    fn release(&mut self);
 
     fn request(
         &mut self,

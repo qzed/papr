@@ -1,6 +1,8 @@
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::ops::Range;
 use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 
 use gtk::traits::{SnapshotExt, WidgetExt};
 use gtk::{gdk, glib};
@@ -18,8 +20,8 @@ mod layout;
 pub use layout::{HorizontalLayout, Layout, LayoutProvider, VerticalLayout};
 
 mod render;
-use self::render::{FallbackManager, FallbackSpec};
-use self::render::{HybridTilingScheme, TileManager, TilePriority, TileSource};
+use self::render::{FallbackManager, FallbackSpec, HybridTilingScheme, TileManager};
+use self::render::{TilePriority, TileProvider, TileSource};
 
 pub struct PageData<'a, F>
 where
@@ -46,7 +48,7 @@ where
 pub struct Canvas {
     widget: Rc<RefCell<Option<Widget>>>,
     layout: Layout,
-    source: PdfTileSource,
+    provider: PdfTileProvider,
     tile_manager: TileManager<HybridTilingScheme, Handle<gdk::MemoryTexture>>,
     fbck_manager: FallbackManager<Handle<gdk::MemoryTexture>>,
 }
@@ -111,12 +113,12 @@ impl Canvas {
 
         let executor = Executor::new(1);
         let monitor = TaskMonitor::new(notif_sender);
-        let source = PdfTileSource::new(executor, monitor, pages);
+        let provider = PdfTileProvider::new(executor, monitor, doc);
 
         Self {
             widget,
             layout,
-            source,
+            provider,
             tile_manager,
             fbck_manager,
         }
@@ -190,13 +192,11 @@ impl Canvas {
         }
 
         // update fallback- and tile-caches
-        self.source.prepare(&visible);
-
-        let pages = PageData::new(&self.layout.rects, &visible, &transform);
-        self.fbck_manager.update(&mut self.source, &pages, vp);
-        self.tile_manager.update(&mut self.source, &pages, vp);
-
-        self.source.release();
+        self.provider.request(&visible, |source| {
+            let pages = PageData::new(&self.layout.rects, &visible, &transform);
+            self.fbck_manager.update(source, &pages, vp);
+            self.tile_manager.update(source, &pages, vp);
+        });
 
         // render pages
         let iter = visible.clone().zip(&self.layout.rects[visible]);
@@ -267,28 +267,77 @@ impl executor::exec::Monitor for TaskMonitor {
     }
 }
 
-struct PdfTileSource {
+struct PdfTileProvider {
     executor: Executor,
     monitor: TaskMonitor,
-    pages: Vec<Page>,
+    document: Document,
+    page_cache: Arc<Mutex<HashMap<usize, Page>>>,
 }
 
-impl PdfTileSource {
-    fn new(executor: Executor, monitor: TaskMonitor, pages: Vec<Page>) -> Self {
+struct PdfTileSource<'a> {
+    provider: &'a mut PdfTileProvider,
+    pages: Range<usize>,
+}
+
+impl PdfTileProvider {
+    fn new(executor: Executor, monitor: TaskMonitor, document: Document) -> Self {
         Self {
             executor,
             monitor,
-            pages,
+            document,
+            page_cache: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }
 
-impl TileSource for PdfTileSource {
+impl TileProvider for PdfTileProvider {
+    type Source<'a> = PdfTileSource<'a>;
+
+    fn request<F, R>(&mut self, pages: &Range<usize>, f: F) -> R
+    where
+        F: FnOnce(&mut Self::Source<'_>) -> R,
+    {
+        f(&mut PdfTileSource::new(self, pages.clone()))
+    }
+}
+
+impl<'a> PdfTileSource<'a> {
+    fn new(provider: &'a mut PdfTileProvider, pages: Range<usize>) -> Self {
+        let mut source = Self { provider, pages };
+        source.prepare();
+        source
+    }
+
+    fn prepare(&mut self) {
+        // remove any cached pages that are no longer visible
+        let cache = self.provider.page_cache.clone();
+        let pages = self.pages.clone();
+
+        self.provider.executor.submit(TilePriority::High, move || {
+            cache.lock().unwrap().retain(|i, _| pages.contains(i));
+        });
+    }
+
+    fn release(&mut self) {
+        // remove any cached pages that are no longer visible
+        let cache = self.provider.page_cache.clone();
+        let pages = self.pages.clone();
+
+        self.provider.executor.submit(TilePriority::Low, move || {
+            cache.lock().unwrap().retain(|i, _| pages.contains(i));
+        });
+    }
+}
+
+impl<'a> Drop for PdfTileSource<'a> {
+    fn drop(&mut self) {
+        self.release()
+    }
+}
+
+impl<'a> TileSource for PdfTileSource<'a> {
     type Data = gdk::MemoryTexture;
     type Handle = Handle<gdk::MemoryTexture>;
-
-    fn prepare(&mut self, _pages: &Range<usize>) {}
-    fn release(&mut self) {}
 
     fn request(
         &mut self,
@@ -297,16 +346,35 @@ impl TileSource for PdfTileSource {
         rect: Rect<i64>,
         priority: TilePriority,
     ) -> Self::Handle {
-        let page = self.pages[page_index].clone();
+        let doc = self.provider.document.clone();
+        let cache = self.provider.page_cache.clone();
+        let visible = self.pages.clone();
+
         let task = move || {
+            let mut cache = cache.lock().unwrap();
+
+            // look up page in cache, storing it if visible
+            let page = if visible.contains(&page_index) {
+                cache
+                    .entry(page_index)
+                    .or_insert_with(|| doc.pages().get(page_index as _).unwrap())
+                    .clone()
+            } else {
+                cache
+                    .get(&page_index)
+                    .cloned()
+                    .unwrap_or_else(|| doc.pages().get(page_index as _).unwrap())
+            };
+
             let flags = RenderFlags::LcdText | RenderFlags::Annotations;
             let color = Color::WHITE;
 
             render_page_rect_gdk(&page, &page_size, &rect, color, flags).unwrap()
         };
 
-        self.executor
-            .submit_with(self.monitor.clone(), priority, task)
+        self.provider
+            .executor
+            .submit_with(self.provider.monitor.clone(), priority, task)
             .cancel_on_drop()
     }
 }

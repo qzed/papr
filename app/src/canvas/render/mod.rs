@@ -8,7 +8,7 @@ mod scheme;
 pub use scheme::{ExactLevelTilingScheme, HybridTilingScheme, QuadTreeTilingScheme, TilingScheme};
 
 mod source;
-pub use source::{TileHandle, TilePriority, TileSource};
+pub use source::{TileHandle, TilePriority, TileProvider, TileSource};
 
 mod tile;
 pub use tile::{TileId, TileRect};
