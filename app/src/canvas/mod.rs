@@ -55,14 +55,12 @@ pub struct Canvas {
 
 impl Canvas {
     pub fn create(doc: Document) -> Self {
-        // load pages
-        let pages: Vec<_> = (0..(doc.pages().count()))
-            .map(|i| doc.pages().get(i).unwrap())
-            .collect();
+        // obtain page sizes
+        let page_sizes = (0..(doc.pages().count())).map(|i| doc.pages().get_size(i).unwrap());
 
         // compute layout
         let layout_provider = VerticalLayout;
-        let layout = layout_provider.compute(&pages, 10.0);
+        let layout = layout_provider.compute(page_sizes, 10.0);
 
         // set up tile-manager
         let scheme = HybridTilingScheme::new(vector![1024, 1024], 3072);

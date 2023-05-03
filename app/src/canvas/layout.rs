@@ -1,7 +1,4 @@
-use na::point;
-use nalgebra as na;
-
-use pdfium::doc::Page;
+use nalgebra::{point, vector};
 
 use crate::types::{Bounds, Rect};
 
@@ -11,17 +8,17 @@ pub struct Layout {
 }
 
 pub trait LayoutProvider {
-    fn compute<'a>(&self, pages: impl IntoIterator<Item = &'a Page>, space: f64) -> Layout;
+    fn compute(&self, page_sizes: impl IntoIterator<Item = (f64, f64)>, space: f64) -> Layout;
 }
 
 pub struct VerticalLayout;
 pub struct HorizontalLayout;
 
 impl LayoutProvider for VerticalLayout {
-    fn compute<'a>(&self, pages: impl IntoIterator<Item = &'a Page>, space: f64) -> Layout {
-        let mut rects: Vec<Rect<f64>> = pages
+    fn compute(&self, page_sizes: impl IntoIterator<Item = (f64, f64)>, space: f64) -> Layout {
+        let mut rects: Vec<Rect<f64>> = page_sizes
             .into_iter()
-            .map(|p| Rect::new(point![0.0, 0.0], na::convert(p.size())))
+            .map(|(w, h)| Rect::new(point![0.0, 0.0], vector![w, h]))
             .collect();
 
         let mut bounds = Bounds::zero();
@@ -49,10 +46,10 @@ impl LayoutProvider for VerticalLayout {
 }
 
 impl LayoutProvider for HorizontalLayout {
-    fn compute<'a>(&self, pages: impl IntoIterator<Item = &'a Page>, space: f64) -> Layout {
-        let mut rects: Vec<Rect<f64>> = pages
+    fn compute(&self, page_sizes: impl IntoIterator<Item = (f64, f64)>, space: f64) -> Layout {
+        let mut rects: Vec<Rect<f64>> = page_sizes
             .into_iter()
-            .map(|p| Rect::new(point![0.0, 0.0], na::convert(p.size())))
+            .map(|(w, h)| Rect::new(point![0.0, 0.0], vector![w, h]))
             .collect();
 
         let mut bounds = Bounds::zero();
