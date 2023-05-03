@@ -1,5 +1,5 @@
 use crate::doc::{Document, Page};
-use crate::{Library, Result};
+use crate::{Error, Library, Result};
 
 use std::ffi::c_void;
 
@@ -30,6 +30,28 @@ impl<'a> Pages<'a> {
         // should we load and chache it here?
 
         Ok(page)
+    }
+
+    pub fn get_size(&self, index: u32) -> Result<(f64, f64)> {
+        let doc = self.doc.handle().get();
+
+        let mut width: f64 = 0.0;
+        let mut height: f64 = 0.0;
+
+        let res = unsafe {
+            self.lib.ftable().FPDF_GetPageSizeByIndex(
+                doc,
+                index as _,
+                &mut width as *mut _,
+                &mut height as *mut _,
+            )
+        };
+
+        if res != 0 {
+            Ok((width, height))
+        } else {
+            Err(Error::InvalidArgument)
+        }
     }
 
     pub fn get_label(&self, index: u32) -> Result<Option<String>> {
