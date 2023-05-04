@@ -51,6 +51,8 @@ pub struct Canvas {
     provider: PdfTileProvider,
     tile_manager: TileManager<HybridTilingScheme, Handle<gdk::MemoryTexture>>,
     fbck_manager: FallbackManager<Handle<gdk::MemoryTexture>>,
+    main_opts: RenderOptions,
+    fbck_opts: RenderOptions,
 }
 
 impl Canvas {
@@ -113,12 +115,24 @@ impl Canvas {
         let monitor = TaskMonitor::new(notif_sender);
         let provider = PdfTileProvider::new(executor, monitor, doc);
 
+        let main_opts = RenderOptions {
+            flags: RenderFlags::LcdText | RenderFlags::Annotations,
+            background: Color::WHITE,
+        };
+
+        let fbck_opts = RenderOptions {
+            flags: RenderFlags::Annotations,
+            background: Color::WHITE,
+        };
+
         Self {
             widget,
             layout,
             provider,
             tile_manager,
             fbck_manager,
+            main_opts,
+            fbck_opts,
         }
     }
 
@@ -197,8 +211,12 @@ impl Canvas {
         // update fallback- and tile-caches
         self.provider.request(&visible, |source| {
             let pages = PageData::new(&self.layout.rects, &visible, &transform);
-            self.fbck_manager.update(source, &pages, vp);
-            self.tile_manager.update(source, &pages, vp);
+
+            self.fbck_manager
+                .update(source, &pages, vp, &self.fbck_opts);
+
+            self.tile_manager
+                .update(source, &pages, vp, &self.main_opts);
         });
 
         // render pages
@@ -341,17 +359,20 @@ impl<'a> Drop for PdfTileSource<'a> {
 impl<'a> TileSource for PdfTileSource<'a> {
     type Data = gdk::MemoryTexture;
     type Handle = Handle<gdk::MemoryTexture>;
+    type RequestOptions = RenderOptions;
 
     fn request(
         &mut self,
         page_index: usize,
         page_size: Vector2<i64>,
         rect: Rect<i64>,
+        opts: &Self::RequestOptions,
         priority: TilePriority,
     ) -> Self::Handle {
         let doc = self.provider.document.clone();
         let cache = self.provider.page_cache.clone();
         let visible = self.pages.clone();
+        let opts = opts.clone();
 
         let task = move || {
             let mut cache = cache.lock().unwrap();
@@ -369,11 +390,6 @@ impl<'a> TileSource for PdfTileSource<'a> {
                     .unwrap_or_else(|| doc.pages().get(page_index as _).unwrap())
             };
 
-            let opts = RenderOptions {
-                flags: RenderFlags::LcdText | RenderFlags::Annotations,
-                background: Color::WHITE,
-            };
-
             render_page_rect_gdk(&page, &page_size, &rect, &opts).unwrap()
         };
 
@@ -384,6 +400,7 @@ impl<'a> TileSource for PdfTileSource<'a> {
     }
 }
 
+#[derive(Debug, Clone)]
 struct RenderOptions {
     flags: RenderFlags,
     background: Color,

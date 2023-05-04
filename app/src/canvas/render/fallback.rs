@@ -60,10 +60,15 @@ where
         FallbackManager { levels }
     }
 
-    pub fn update<F, S>(&mut self, source: &mut S, pages: &PageData<'_, F>, vp: &Viewport)
-    where
+    pub fn update<F, S, O>(
+        &mut self,
+        source: &mut S,
+        pages: &PageData<'_, F>,
+        vp: &Viewport,
+        request_opts: &O,
+    ) where
         F: Fn(&Rect<f64>) -> Rect<f64>,
-        S: TileSource<Handle = H>,
+        S: TileSource<Handle = H, RequestOptions = O>,
     {
         // process LoD levels from highest to lowest resolution
         for level in self.levels.iter_mut().rev() {
@@ -139,7 +144,7 @@ where
                 };
 
                 // request tile
-                let task = source.request(page_index, page_size, rect, priority);
+                let task = source.request(page_index, page_size, rect, request_opts, priority);
                 *fallback = CacheEntry::Pending(task);
 
                 complete = false;

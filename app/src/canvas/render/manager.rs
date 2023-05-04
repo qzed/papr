@@ -33,10 +33,15 @@ where
         }
     }
 
-    pub fn update<F, T>(&mut self, source: &mut T, pages: &PageData<'_, F>, vp: &Viewport)
-    where
+    pub fn update<F, T, O>(
+        &mut self,
+        source: &mut T,
+        pages: &PageData<'_, F>,
+        vp: &Viewport,
+        request_opts: &O,
+    ) where
         F: Fn(&Rect<f64>) -> Rect<f64>,
-        T: TileSource<Handle = H>,
+        T: TileSource<Handle = H, RequestOptions = O>,
     {
         // remove out-of-view pages from cache
         self.cache.retain(|page, _| pages.visible.contains(page));
@@ -56,19 +61,27 @@ where
             let vp_adj = Viewport { r: vp.r, scale };
 
             // update tiles for page
-            self.update_page(source, &vp_adj, page_index, &page_rect, page_rect_pt);
+            self.update_page(
+                source,
+                &vp_adj,
+                page_index,
+                &page_rect,
+                page_rect_pt,
+                request_opts,
+            );
         }
     }
 
-    fn update_page<T>(
+    fn update_page<T, O>(
         &mut self,
         source: &mut T,
         vp: &Viewport,
         page_index: usize,
         page_rect: &Rect<f64>,
         page_rect_pt: &Rect<f64>,
+        request_opts: &O,
     ) where
-        T: TileSource<Handle = H>,
+        T: TileSource<Handle = H, RequestOptions = O>,
     {
         // viewport bounds relative to the page in pixels (area of page visible on screen)
         let visible_page = Rect::new(-page_rect.offs, vp.r.size)
@@ -123,7 +136,7 @@ where
                         .render_rect(&page_rect_pt.size, &page_rect.size, &id);
 
                 // request tile
-                let handle = source.request(page_index, page_size, rect, priority);
+                let handle = source.request(page_index, page_size, rect, request_opts, priority);
 
                 // store handle to the render task
                 entry.pending.insert(id, Some(handle));

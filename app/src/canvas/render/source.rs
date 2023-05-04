@@ -16,12 +16,14 @@ pub trait TileProvider {
 pub trait TileSource {
     type Data;
     type Handle: TileHandle<Data = Self::Data>;
+    type RequestOptions;
 
     fn request(
         &mut self,
         page_index: usize,
         page_size: Vector2<i64>,
         rect: Rect<i64>,
+        opts: &Self::RequestOptions,
         priority: TilePriority,
     ) -> Self::Handle;
 }
