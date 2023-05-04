@@ -4,6 +4,8 @@ use std::ops::Range;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
+use executor::exec::Monitor;
+
 use gtk::traits::{SnapshotExt, WidgetExt};
 use gtk::{gdk, glib};
 use gtk::{Snapshot, Widget};
@@ -11,7 +13,7 @@ use gtk::{Snapshot, Widget};
 use na::{point, vector, Similarity2, Translation2, Vector2};
 use nalgebra as na;
 
-use pdfium::bitmap::{Bitmap, BitmapFormat, Color};
+use pdfium::bitmap::{BitmapFormat, Color};
 use pdfium::doc::{Document, Page, PageRenderLayout, PageRotation, RenderFlags};
 
 use crate::types::{Bounds, Rect, Viewport};
@@ -48,7 +50,7 @@ where
 pub struct Canvas {
     widget: Rc<RefCell<Option<Widget>>>,
     layout: Layout,
-    provider: PdfTileProvider,
+    provider: PdfTileProvider<TaskMonitor, GdkTextureFactory>,
     tile_manager: TileManager<HybridTilingScheme, Handle<gdk::MemoryTexture>>,
     fbck_manager: FallbackManager<Handle<gdk::MemoryTexture>>,
     main_opts: RenderOptions,
@@ -113,7 +115,8 @@ impl Canvas {
 
         let executor = Executor::new(1);
         let monitor = TaskMonitor::new(notif_sender);
-        let provider = PdfTileProvider::new(executor, monitor, doc);
+        let factory = GdkTextureFactory;
+        let provider = PdfTileProvider::new(executor, monitor, factory, doc);
 
         let main_opts = RenderOptions {
             flags: RenderFlags::LcdText | RenderFlags::Annotations,
@@ -282,37 +285,50 @@ impl TaskMonitor {
     }
 }
 
-impl executor::exec::Monitor for TaskMonitor {
+impl Monitor for TaskMonitor {
     fn on_complete(&self) {
         self.sender.send(()).unwrap()
     }
 }
 
-struct PdfTileProvider {
+struct PdfTileProvider<M, F> {
     executor: Executor,
-    monitor: TaskMonitor,
+    monitor: M,
+    factory: F,
     document: Document,
     page_cache: Arc<Mutex<HashMap<usize, Page>>>,
 }
 
-struct PdfTileSource<'a> {
-    provider: &'a mut PdfTileProvider,
+struct PdfTileSource<'a, M, F> {
+    provider: &'a mut PdfTileProvider<M, F>,
     pages: Range<usize>,
 }
 
-impl PdfTileProvider {
-    fn new(executor: Executor, monitor: TaskMonitor, document: Document) -> Self {
+#[derive(Debug, Clone)]
+struct RenderOptions {
+    flags: RenderFlags,
+    background: Color,
+}
+
+impl<M, F> PdfTileProvider<M, F> {
+    fn new(executor: Executor, monitor: M, factory: F, document: Document) -> Self {
         Self {
             executor,
             monitor,
+            factory,
             document,
             page_cache: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }
 
-impl TileProvider for PdfTileProvider {
-    type Source<'a> = PdfTileSource<'a>;
+impl<M, T> TileProvider for PdfTileProvider<M, T>
+where
+    M: Monitor + Send + Clone + 'static,
+    T: TileFactory + Send + Clone + 'static,
+    T::Data: Send,
+{
+    type Source<'a> = PdfTileSource<'a, M, T>;
 
     fn request<F, R>(&mut self, pages: &Range<usize>, f: F) -> R
     where
@@ -322,8 +338,8 @@ impl TileProvider for PdfTileProvider {
     }
 }
 
-impl<'a> PdfTileSource<'a> {
-    fn new(provider: &'a mut PdfTileProvider, pages: Range<usize>) -> Self {
+impl<'a, M, F> PdfTileSource<'a, M, F> {
+    fn new(provider: &'a mut PdfTileProvider<M, F>, pages: Range<usize>) -> Self {
         let mut source = Self { provider, pages };
         source.prepare();
         source
@@ -350,15 +366,20 @@ impl<'a> PdfTileSource<'a> {
     }
 }
 
-impl<'a> Drop for PdfTileSource<'a> {
+impl<'a, M, F> Drop for PdfTileSource<'a, M, F> {
     fn drop(&mut self) {
         self.release()
     }
 }
 
-impl<'a> TileSource for PdfTileSource<'a> {
-    type Data = gdk::MemoryTexture;
-    type Handle = Handle<gdk::MemoryTexture>;
+impl<'a, M, F> TileSource for PdfTileSource<'a, M, F>
+where
+    M: Monitor + Send + Clone + 'static,
+    F: TileFactory + Send + Clone + 'static,
+    F::Data: Send,
+{
+    type Data = F::Data;
+    type Handle = Handle<F::Data>;
     type RequestOptions = RenderOptions;
 
     fn request(
@@ -369,6 +390,7 @@ impl<'a> TileSource for PdfTileSource<'a> {
         opts: &Self::RequestOptions,
         priority: TilePriority,
     ) -> Self::Handle {
+        let factory = self.provider.factory.clone();
         let doc = self.provider.document.clone();
         let cache = self.provider.page_cache.clone();
         let visible = self.pages.clone();
@@ -390,7 +412,11 @@ impl<'a> TileSource for PdfTileSource<'a> {
                     .unwrap_or_else(|| doc.pages().get(page_index as _).unwrap())
             };
 
-            render_page_rect_gdk(&page, &page_size, &rect, &opts).unwrap()
+            // render page to buffer
+            let bmp = render_page_rect(&page, &page_size, &rect, &opts).unwrap();
+
+            // create return value
+            factory.create(bmp)
         };
 
         self.provider
@@ -400,10 +426,10 @@ impl<'a> TileSource for PdfTileSource<'a> {
     }
 }
 
-#[derive(Debug, Clone)]
-struct RenderOptions {
-    flags: RenderFlags,
-    background: Color,
+struct Bitmap {
+    buffer: Box<[u8]>,
+    size: Vector2<u32>,
+    stride: u32,
 }
 
 fn render_page_rect(
@@ -411,13 +437,13 @@ fn render_page_rect(
     page_size: &Vector2<i64>,
     rect: &Rect<i64>,
     opts: &RenderOptions,
-) -> pdfium::Result<Box<[u8]>> {
+) -> pdfium::Result<Bitmap> {
     // allocate tile bitmap buffer
     let stride = rect.size.x as usize * 3;
     let mut buffer = vec![0; stride * rect.size.y as usize];
 
     // wrap buffer in bitmap
-    let mut bmp = Bitmap::from_buf(
+    let mut bmp = pdfium::bitmap::Bitmap::from_buf(
         page.library().clone(),
         rect.size.x as _,
         rect.size.y as _,
@@ -439,30 +465,40 @@ fn render_page_rect(
     // render page to bitmap
     page.render(&mut bmp, &layout, opts.flags)?;
 
-    // drop the wrapping bitmap and return the buffer
+    // drop the wrapping bitmap
     drop(bmp);
-    Ok(buffer.into_boxed_slice())
+
+    // construct bitmap
+    let bmp = Bitmap {
+        buffer: buffer.into_boxed_slice(),
+        size: na::convert_unchecked(rect.size),
+        stride: stride as _,
+    };
+
+    Ok(bmp)
 }
 
-fn render_page_rect_gdk(
-    page: &Page,
-    page_size: &Vector2<i64>,
-    rect: &Rect<i64>,
-    opts: &RenderOptions,
-) -> pdfium::Result<gdk::MemoryTexture> {
-    // render page to byte buffer
-    let buf = render_page_rect(page, page_size, rect, opts)?;
+trait TileFactory {
+    type Data;
 
-    // create GTK/GDK texture
-    let stride = rect.size.x as usize * 3;
-    let bytes = glib::Bytes::from_owned(buf);
-    let texture = gdk::MemoryTexture::new(
-        rect.size.x as _,
-        rect.size.y as _,
-        gdk::MemoryFormat::B8g8r8,
-        &bytes,
-        stride as _,
-    );
+    fn create(&self, bmp: Bitmap) -> Self::Data;
+}
 
-    Ok(texture)
+#[derive(Debug, Clone)]
+struct GdkTextureFactory;
+
+impl TileFactory for GdkTextureFactory {
+    type Data = gdk::MemoryTexture;
+
+    fn create(&self, bmp: Bitmap) -> gdk::MemoryTexture {
+        let bytes = glib::Bytes::from_owned(bmp.buffer);
+
+        gdk::MemoryTexture::new(
+            bmp.size.x as _,
+            bmp.size.y as _,
+            gdk::MemoryFormat::B8g8r8,
+            &bytes,
+            bmp.stride as _,
+        )
+    }
 }
