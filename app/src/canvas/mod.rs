@@ -369,10 +369,12 @@ impl<'a> TileSource for PdfTileSource<'a> {
                     .unwrap_or_else(|| doc.pages().get(page_index as _).unwrap())
             };
 
-            let flags = RenderFlags::LcdText | RenderFlags::Annotations;
-            let color = Color::WHITE;
+            let opts = RenderOptions {
+                flags: RenderFlags::LcdText | RenderFlags::Annotations,
+                background: Color::WHITE,
+            };
 
-            render_page_rect_gdk(&page, &page_size, &rect, color, flags).unwrap()
+            render_page_rect_gdk(&page, &page_size, &rect, &opts).unwrap()
         };
 
         self.provider
@@ -382,12 +384,16 @@ impl<'a> TileSource for PdfTileSource<'a> {
     }
 }
 
+struct RenderOptions {
+    flags: RenderFlags,
+    background: Color,
+}
+
 fn render_page_rect(
     page: &Page,
     page_size: &Vector2<i64>,
     rect: &Rect<i64>,
-    background: Color,
-    flags: RenderFlags,
+    opts: &RenderOptions,
 ) -> pdfium::Result<Box<[u8]>> {
     // allocate tile bitmap buffer
     let stride = rect.size.x as usize * 3;
@@ -404,7 +410,7 @@ fn render_page_rect(
     )?;
 
     // clear bitmap with background color
-    bmp.fill_rect(0, 0, rect.size.x as _, rect.size.y as _, background);
+    bmp.fill_rect(0, 0, rect.size.x as _, rect.size.y as _, opts.background);
 
     // set up render layout
     let layout = PageRenderLayout {
@@ -414,7 +420,7 @@ fn render_page_rect(
     };
 
     // render page to bitmap
-    page.render(&mut bmp, &layout, flags)?;
+    page.render(&mut bmp, &layout, opts.flags)?;
 
     // drop the wrapping bitmap and return the buffer
     drop(bmp);
@@ -425,11 +431,10 @@ fn render_page_rect_gdk(
     page: &Page,
     page_size: &Vector2<i64>,
     rect: &Rect<i64>,
-    background: Color,
-    flags: RenderFlags,
+    opts: &RenderOptions,
 ) -> pdfium::Result<gdk::MemoryTexture> {
     // render page to byte buffer
-    let buf = render_page_rect(page, page_size, rect, background, flags)?;
+    let buf = render_page_rect(page, page_size, rect, opts)?;
 
     // create GTK/GDK texture
     let stride = rect.size.x as usize * 3;
