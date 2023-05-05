@@ -1,9 +1,12 @@
 use std::cell::{Cell, RefCell};
 
+use executor::exec::Monitor;
+
 use gtk::{
+    gdk,
     glib::{self, once_cell::sync::Lazy, ParamSpec, Value},
     graphene,
-    prelude::{Cast, ObjectExt, ParamSpecBuilderExt, ToValue},
+    prelude::{ObjectExt, ParamSpecBuilderExt, ToValue},
     subclass::{
         prelude::{ObjectImpl, ObjectSubclass, ObjectSubclassExt, ObjectSubclassIsExt},
         scrollable::ScrollableImpl,
@@ -12,9 +15,16 @@ use gtk::{
     traits::{AdjustmentExt, ScrollableExt, SnapshotExt, WidgetExt},
     Adjustment, ScrollablePolicy,
 };
-use nalgebra::{point, vector, Point2};
 
-use crate::core::Canvas;
+use nalgebra::{point, vector, Point2, Similarity2, Translation2};
+
+use pdfium::bitmap::Color;
+use pdfium::doc::{Document, RenderFlags};
+
+use crate::core::render::core::{FallbackManager, FallbackSpec, HybridTilingScheme, TileManager};
+use crate::core::render::interop::{Bitmap, TileFactory};
+use crate::core::render::layout::Layout;
+use crate::core::render::pdfium::{Executor, Handle, PdfTileProvider, RenderOptions};
 use crate::types::{Bounds, Margin, Rect, Viewport};
 
 pub struct CanvasWidget {
@@ -35,25 +45,27 @@ pub struct CanvasWidget {
     offset: RefCell<Point2<f64>>,
     scale: Cell<f64>,
 
-    // render-state
+    // render options
+    fallback_specs: Vec<FallbackSpec>,
+    render_opts_main: RenderOptions,
+    render_opts_fallback: RenderOptions,
+
+    // render state
     viewport: RefCell<Viewport>,
 
-    // canvas to be rendered
-    canvas: RefCell<Option<Canvas>>,
+    // document data
+    data: RefCell<Option<DocumentData>>,
+}
+
+struct DocumentData {
+    layout: Layout,
+    tile_provider: PdfTileProvider<TaskMonitor, TextureFactory>,
+    tile_manager: TileManager<HybridTilingScheme, Handle<gdk::MemoryTexture>>,
+    fallback_manager: FallbackManager<Handle<gdk::MemoryTexture>>,
 }
 
 impl CanvasWidget {
     fn new() -> Self {
-        let margin = Margin {
-            left: 50.0,
-            right: 50.0,
-            top: 100.0,
-            bottom: 100.0,
-        };
-
-        let offset = point![0.0, 0.0];
-        let scale = 1.0;
-
         Self {
             hscroll_policy: Cell::new(ScrollablePolicy::Minimum),
             vscroll_policy: Cell::new(ScrollablePolicy::Minimum),
@@ -63,44 +75,234 @@ impl CanvasWidget {
             hadjustment_handler: Cell::new(None),
             vadjustment_handler: Cell::new(None),
 
-            margin: RefCell::new(margin),
-            offset: RefCell::new(offset),
-            scale: Cell::new(scale),
+            margin: RefCell::new(Margin {
+                left: 50.0,
+                right: 50.0,
+                top: 100.0,
+                bottom: 100.0,
+            }),
+            offset: RefCell::new(point![0.0, 0.0]),
+            scale: Cell::new(1.0),
 
             viewport: RefCell::new(Viewport {
                 r: Rect {
-                    offs: offset,
+                    offs: point![0.0, 0.0],
                     size: vector![600.0, 800.0],
                 },
-                scale,
+                scale: 1.0,
             }),
 
-            canvas: RefCell::new(None),
+            fallback_specs: vec![
+                FallbackSpec {
+                    halo: usize::MAX,
+                    render_threshold: vector![0.0, 0.0],
+                    render_limits: vector![128, 128],
+                },
+                FallbackSpec {
+                    halo: 24,
+                    render_threshold: vector![256.0, 256.0],
+                    render_limits: vector![256, 256],
+                },
+                FallbackSpec {
+                    halo: 1,
+                    render_threshold: vector![1024.0, 1024.0],
+                    render_limits: vector![1024, 1024],
+                },
+                FallbackSpec {
+                    halo: 0,
+                    render_threshold: vector![2048.0, 2048.0],
+                    render_limits: vector![2048, 2048],
+                },
+                FallbackSpec {
+                    halo: 0,
+                    render_threshold: vector![3072.0, 3072.0],
+                    render_limits: vector![3072, 3072],
+                },
+            ],
+            render_opts_main: RenderOptions {
+                flags: RenderFlags::LcdText | RenderFlags::Annotations,
+                background: Color::WHITE,
+            },
+            render_opts_fallback: RenderOptions {
+                flags: RenderFlags::Annotations,
+                background: Color::WHITE,
+            },
+
+            data: RefCell::new(None),
         }
     }
 
     fn bounds(&self) -> Bounds<f64> {
-        self.canvas
+        self.data
             .borrow()
             .as_ref()
-            .map(|c| *c.bounds())
+            .map(|d| d.layout.bounds)
             .unwrap_or_else(Bounds::zero)
     }
 
     fn scale_bounds(&self) -> (f64, f64) {
-        self.canvas
-            .borrow()
-            .as_ref()
-            .map(|c| c.scale_bounds())
-            .unwrap_or((1.0, 1.0))
+        (1e-2, 1e4)
     }
 
-    pub fn set_canvas(&self, mut canvas: Option<Canvas>) {
-        if let Some(c) = canvas.as_mut() {
-            c.set_widget(Some(self.obj().clone().upcast()));
+    pub fn set_document(&self, doc: Document) {
+        use crate::core::render::layout::{LayoutProvider, VerticalLayout};
+
+        // compute layout
+        let page_sizes = (0..(doc.pages().count())).map(|i| doc.pages().get_size(i).unwrap());
+        let layout = VerticalLayout.compute(page_sizes, 10.0);
+
+        // set up tile-manager
+        let scheme = HybridTilingScheme::new(vector![1024, 1024], 3072);
+        let tile_manager = TileManager::new(scheme, vector![1, 1], vector![25.0, 25.0]);
+
+        // set up fallback-manager
+        let fallback_manager = FallbackManager::new(&self.fallback_specs);
+
+        // set up render task execution
+        let executor = Executor::new(1);
+        let monitor = TaskMonitor::new(self.obj().clone());
+        let factory = TextureFactory;
+        let tile_provider = PdfTileProvider::new(executor, monitor, factory, doc);
+
+        let data = DocumentData {
+            layout,
+            tile_provider,
+            tile_manager,
+            fallback_manager,
+        };
+
+        *self.data.borrow_mut() = Some(data);
+    }
+
+    pub fn clear(&self) {
+        *self.data.borrow_mut() = None;
+    }
+
+    pub fn render(&self, vp: &Viewport, snapshot: &gtk::Snapshot) {
+        use crate::core::render::core::{PageData, TileProvider};
+
+        let mut data = self.data.borrow_mut();
+        let data = match data.as_mut() {
+            Some(data) => data,
+            None => return,
+        };
+
+        // We have 3 coordinate systems:
+        //
+        // - Viewport coordinates, in pixels relative to the screen with origin
+        //   (0, 0) as upper left corner of the widget.
+        //
+        // - Canvas coordinates, in PDF points. The relation between viewport
+        //   and canvas coordinates is defined by the scale and viewport
+        //   offset.
+        //
+        // - Page coordinates, in PDF points, relative to the page. The origin
+        //   (0, 0) is defined as the upper left corner of the respective page.
+        //   The relation between page coordinates and canvas coordinates is
+        //   defined by the page offset in the canvas.
+
+        // transformation matrix: canvas to viewport
+        let m_ctv = {
+            let m_scale = Similarity2::from_scaling(vp.scale);
+            let m_trans = Translation2::from(-vp.r.offs.coords);
+            m_trans * m_scale
+        };
+
+        // transformation: page (bounds) from canvas to viewport
+        let transform = move |page_rect: &Rect<f64>| {
+            // transformation matrix: page to canvas
+            let m_ptc = Translation2::from(page_rect.offs);
+
+            // transformation matrix: page to viewport/screen
+            let m_ptv = m_ctv * m_ptc;
+
+            // convert page bounds to screen coordinates
+            let page_rect = Rect::new(m_ptv * point![0.0, 0.0], m_ptv * page_rect.size);
+
+            // round coordinates for pixel-perfect rendering
+            page_rect.round()
+        };
+
+        // origin-aligned viewport
+        let screen_rect = Rect::new(point![0.0, 0.0], vp.r.size);
+
+        // find visible pages
+        #[allow(clippy::reversed_empty_ranges)]
+        let mut visible = usize::MAX..0;
+
+        for (i, page_rect_pt) in data.layout.rects.iter().enumerate() {
+            // transform page bounds to viewport
+            let page_rect = transform(page_rect_pt);
+
+            // check if the page is visible
+            if page_rect.intersects(&screen_rect) {
+                visible.start = usize::min(visible.start, i);
+                visible.end = usize::max(visible.end, i + 1);
+            }
         }
 
-        *self.canvas.borrow_mut() = canvas
+        // ensure that we have a valid range if there are no visible pages
+        if visible.start > visible.end {
+            visible = 0..0;
+        }
+
+        // update fallback- and tile-caches
+        data.tile_provider.request(&visible, |source| {
+            let pages = PageData::new(&data.layout.rects, &visible, &transform);
+
+            data.fallback_manager
+                .update(source, &pages, vp, &self.render_opts_fallback);
+
+            data.tile_manager
+                .update(source, &pages, vp, &self.render_opts_main);
+        });
+
+        // render pages
+        let iter = visible.clone().zip(&data.layout.rects[visible]);
+
+        for (i, page_rect_pt) in iter {
+            // transform page bounds to viewport
+            let page_rect = transform(page_rect_pt);
+
+            // clip page bounds to visible screen area (area on screen covered by page)
+            let page_clipped = page_rect.clip(&screen_rect);
+
+            // recompute scale for rounded page
+            let scale = page_rect.size.x / page_rect_pt.size.x;
+            let vp_adj = Viewport { r: vp.r, scale };
+
+            // draw page shadow
+            {
+                let bounds = page_rect.into();
+                let radius = gtk::gsk::graphene::Size::new(0.0, 0.0);
+                let outline = gtk::gsk::RoundedRect::new(bounds, radius, radius, radius, radius);
+
+                let color = gdk::RGBA::new(0.0, 0.0, 0.0, 0.5);
+
+                let shift = vector![0.0, 1.0];
+                let spread = 0.0;
+                let blur = 3.5;
+
+                snapshot.append_outset_shadow(&outline, &color, shift.x, shift.y, spread, blur)
+            }
+
+            // draw page background
+            snapshot.append_color(&gdk::RGBA::new(1.0, 1.0, 1.0, 1.0), &page_clipped.into());
+
+            // draw fallback
+            if let Some(tex) = data.fallback_manager.fallback(i) {
+                snapshot.append_texture(tex, &page_rect.into());
+            }
+
+            // draw tiles
+            let tile_list = data.tile_manager.tiles(&vp_adj, i, &page_rect);
+
+            snapshot.push_clip(&page_clipped.into());
+            for (tile_rect, tex) in &tile_list {
+                snapshot.append_texture(*tex, &(*tile_rect).into());
+            }
+            snapshot.pop();
+        }
     }
 }
 
@@ -438,23 +640,62 @@ impl WidgetImpl for CanvasWidget {
     }
 
     fn snapshot(&self, snapshot: &gtk::Snapshot) {
-        let mut canvas = self.canvas.borrow_mut();
+        let obj = self.obj();
 
-        if let Some(canvas) = canvas.as_mut() {
-            let obj = self.obj();
+        // clip drawing to widget area
+        let bounds = graphene::Rect::new(0.0, 0.0, obj.width() as _, obj.height() as _);
+        snapshot.push_clip(&bounds);
 
-            // clip drawing to widget area
-            let bounds = graphene::Rect::new(0.0, 0.0, obj.width() as _, obj.height() as _);
-            snapshot.push_clip(&bounds);
+        // draw actual canvas
+        let viewport = self.viewport.borrow();
+        self.render(&viewport, snapshot);
 
-            // draw actual canvas
-            let viewport = self.viewport.borrow();
-            canvas.render(&viewport, snapshot);
-
-            // pop the clip
-            snapshot.pop();
-        }
+        // pop the clip
+        snapshot.pop();
     }
 }
 
 impl ScrollableImpl for CanvasWidget {}
+
+#[derive(Clone)]
+struct TaskMonitor {
+    sender: glib::Sender<()>,
+}
+
+impl TaskMonitor {
+    fn new(widget: super::CanvasWidget) -> Self {
+        let (sender, receiver) = glib::MainContext::channel(glib::PRIORITY_DEFAULT);
+
+        receiver.attach(None, move |_| {
+            widget.queue_draw();
+            glib::Continue(true)
+        });
+
+        Self { sender }
+    }
+}
+
+impl Monitor for TaskMonitor {
+    fn on_complete(&self) {
+        self.sender.send(()).unwrap()
+    }
+}
+
+#[derive(Debug, Clone)]
+struct TextureFactory;
+
+impl TileFactory for TextureFactory {
+    type Data = gdk::MemoryTexture;
+
+    fn create(&self, bmp: Bitmap) -> gdk::MemoryTexture {
+        let bytes = glib::Bytes::from_owned(bmp.buffer);
+
+        gdk::MemoryTexture::new(
+            bmp.size.x as _,
+            bmp.size.y as _,
+            gdk::MemoryFormat::B8g8r8,
+            &bytes,
+            bmp.stride as _,
+        )
+    }
+}

@@ -1,5 +1,3 @@
-use crate::core::Canvas;
-
 use gtk::glib::clone;
 use gtk::prelude::FileExt;
 use gtk::subclass::prelude::ObjectSubclassIsExt;
@@ -43,10 +41,8 @@ impl AppWindow {
             let pdflib = pdfium::Library::init().unwrap();
             let doc = pdflib.load_buffer(data, None).unwrap();
 
-            let canvas = Canvas::create(doc);
-
-            println!("file loaded, creating canvas");
-            appwindow.canvas().set_canvas(Some(canvas));
+            println!("file loaded");
+            appwindow.canvas().set_document(doc);
             appwindow.viewport().set_offset_and_scale(vector![0.0, 0.0], 1.0);
             appwindow.viewport().fit_width();
         }));

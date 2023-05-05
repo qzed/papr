@@ -1,7 +1,7 @@
 use gtk::glib;
 use gtk::subclass::prelude::ObjectSubclassIsExt;
 
-use crate::core::Canvas;
+use pdfium::doc::Document;
 
 mod imp;
 
@@ -16,8 +16,12 @@ impl CanvasWidget {
         glib::Object::new()
     }
 
-    pub fn set_canvas(&self, canvas: Option<Canvas>) {
-        self.imp().set_canvas(canvas)
+    pub fn set_document(&self, document: Document) {
+        self.imp().set_document(document)
+    }
+
+    pub fn clear(&self) {
+        self.imp().clear()
     }
 }
 
