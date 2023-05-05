@@ -172,10 +172,12 @@ impl CanvasWidget {
         };
 
         *self.data.borrow_mut() = Some(data);
+        self.obj().queue_allocate();
     }
 
     pub fn clear(&self) {
         *self.data.borrow_mut() = None;
+        self.obj().queue_allocate();
     }
 
     pub fn render(&self, vp: &Viewport, snapshot: &gtk::Snapshot) {
