@@ -47,6 +47,12 @@ impl AppWindow {
 
     pub fn open_file(&self, file: File) {
         glib::MainContext::default().spawn_local(clone!(@weak self as win => async move {
+            println!("loading file: {:?}", file.path().unwrap());
+
+            // TODO: handle errors
+            let (data, _etag) = file.load_bytes_future().await.expect("failed to load file");
+            let data = data.to_vec();
+
             let mut pdflib = win.pdflib.borrow_mut();
             let pdflib = match pdflib.as_ref() {
                 Some(pdflib) => pdflib,
@@ -55,12 +61,6 @@ impl AppWindow {
                     pdflib.as_ref().unwrap()
                 }
             };
-
-            println!("loading file: {:?}", file.path().unwrap());
-
-            // TODO: handle errors
-            let (data, _etag) = file.load_bytes_future().await.expect("failed to load file");
-            let data = data.to_vec();
 
             let doc = pdflib.load_buffer(data, None).unwrap();
 
