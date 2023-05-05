@@ -1,3 +1,6 @@
+mod common;
+pub use common::PageData;
+
 mod fallback;
 pub use fallback::{FallbackManager, FallbackSpec};
 

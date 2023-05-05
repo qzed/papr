@@ -1,4 +1,4 @@
-use crate::canvas::Canvas;
+use crate::core::Canvas;
 
 use gtk::glib::clone;
 use gtk::prelude::FileExt;

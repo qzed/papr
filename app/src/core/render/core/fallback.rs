@@ -3,10 +3,9 @@ use std::ops::Range;
 
 use nalgebra::{point, vector, Vector2};
 
-use crate::canvas::PageData;
 use crate::types::{Rect, Viewport};
 
-use super::{TileHandle, TilePriority, TileSource};
+use super::{TileHandle, TilePriority, TileSource, PageData};
 
 #[derive(Clone, Copy, Debug)]
 pub struct FallbackSpec {

@@ -1,7 +1,7 @@
 use gtk::glib;
 use gtk::subclass::prelude::ObjectSubclassIsExt;
 
-use crate::canvas::Canvas;
+use crate::core::Canvas;
 
 mod imp;
 

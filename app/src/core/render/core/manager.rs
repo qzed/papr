@@ -2,10 +2,9 @@ use std::collections::{HashMap, HashSet};
 
 use nalgebra::{point, Vector2};
 
-use crate::canvas::PageData;
 use crate::types::{Bounds, Rect, Viewport};
 
-use super::{TileHandle, TileId, TilePriority, TileSource, TilingScheme};
+use super::{TileHandle, TileId, TilePriority, TileSource, TilingScheme, PageData};
 
 pub struct TileManager<S, H: TileHandle> {
     scheme: S,

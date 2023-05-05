@@ -14,7 +14,7 @@ use gtk::{
 };
 use nalgebra::{point, vector, Point2};
 
-use crate::canvas::Canvas;
+use crate::core::Canvas;
 use crate::types::{Bounds, Margin, Rect, Viewport};
 
 pub struct CanvasWidget {

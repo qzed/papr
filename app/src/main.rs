@@ -7,7 +7,7 @@ static GLOBAL: Jemalloc = Jemalloc;
 
 use gtk::{glib, prelude::ApplicationExtManual};
 
-mod canvas;
+mod core;
 mod types;
 mod ui;
 
