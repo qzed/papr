@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <interface>
   <template class="AppWindow" parent="AdwApplicationWindow">
-    <property name="title">PDF Annotator Prototype</property>
     <property name="default-width">750</property>
     <property name="default-height">900</property>
     <property name="content">
@@ -9,7 +8,55 @@
         <property name="orientation">vertical</property>
         <property name="hexpand">True</property>
         <child>
-          <object class="AdwHeaderBar"></object>
+          <object class="GtkBox" id="titlebox">
+            <child>
+              <object class="GtkLabel" id="window_title_unsaved_indicator">
+                <property name="label">•</property>
+                <property name="visible">false</property>
+              </object>
+            </child>
+            <child>
+              <object class="AdwWindowTitle" id="window_title">
+                <property name="title">Document Title</property>
+                <property name="subtitle">Document Path</property>
+              </object>
+            </child>
+          </object>
+          <object class="AdwHeaderBar">
+            <property name="title-widget">titlebox</property>
+            <property name="centering-policy">loose</property>
+            <property name="vexpand">false</property>
+            <child type="end">
+              <object class="GtkBox">
+                <property name="layout-manager">
+                  <object class="GtkBinLayout" />
+                </property>
+                <child>
+                  <object class="GtkPopoverMenu" id="popovermenu">
+                    <property name="menu-model">menu_model</property>
+                    <property name="hexpand">true</property>
+                    <menu id="menu_model">
+                      <section>
+                        <item>
+                          <attribute name="label">Open</attribute>
+                          <attribute name="action">win.document-open</attribute>
+                        </item>
+                        <item>
+                          <attribute name="label">Close</attribute>
+                          <attribute name="action">win.document-close</attribute>
+                        </item>
+                      </section>
+                    </menu>
+                  </object>
+                  <object class="GtkMenuButton" id="menubutton">
+                    <property name="tooltip-text" translatable="yes">Menu</property>
+                    <property name="icon-name">open-menu</property>
+                    <property name="popover">popovermenu</property>
+                  </object>
+                </child>
+              </object>
+            </child>
+          </object>
         </child>
         <child>
           <object class="Viewport" id="viewport">
