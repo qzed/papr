@@ -62,7 +62,7 @@ impl AppWindow {
             let (data, _etag) = file.load_bytes_future().await.expect("failed to load file");
             let data = data.to_vec();
 
-            let doc = pdflib.load_buffer(data.clone(), None).unwrap();
+            let doc = pdflib.load_buffer(data, None).unwrap();
 
             println!("file loaded");
 
