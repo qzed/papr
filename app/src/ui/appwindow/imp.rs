@@ -128,16 +128,13 @@ impl ObjectImpl for AppWindow {
                 .build();
 
             filechooser.connect_response(clone!(@weak win => move |filechooser, rsptype| {
-                match rsptype {
-                    ResponseType::Accept => {
-                        if let Some(file) = filechooser.file() {
-                            win.open_file(file);
+                if rsptype == ResponseType::Accept {
+                    if let Some(file) = filechooser.file() {
+                        win.open_file(file);
 
-                            // drop the filechooser
-                            *win.filechooser.borrow_mut() = None;
-                        }
-                    },
-                    _ => {}
+                        // drop the filechooser
+                        *win.filechooser.borrow_mut() = None;
+                    }
                 }
             }));
 
