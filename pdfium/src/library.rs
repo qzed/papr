@@ -217,7 +217,7 @@ impl LibraryGuard {
 
 impl Drop for LibraryGuard {
     fn drop(&mut self) {
-        unsafe { self.ftable().FPDF_DestroyLibrary() };
+        unsafe { self.ftable.get_mut().unwrap().FPDF_DestroyLibrary() };
     }
 }
 
