@@ -17,8 +17,8 @@
             </child>
             <child>
               <object class="AdwWindowTitle" id="window_title">
-                <property name="title">Document Title</property>
-                <property name="subtitle">Document Path</property>
+                <property name="title">PDF Annotator Prototype</property>
+                <property name="subtitle">No Document Selected</property>
               </object>
             </child>
           </object>

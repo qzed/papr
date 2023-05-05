@@ -29,6 +29,9 @@ pub struct AppWindow {
     #[template_child]
     canvas: TemplateChild<CanvasWidget>,
 
+    #[template_child]
+    window_title: TemplateChild<adw::WindowTitle>,
+
     pdflib: RefCell<Option<pdfium::Library>>,
     filechooser: RefCell<Option<FileChooserNative>>,
 }
@@ -62,10 +65,28 @@ impl AppWindow {
             let doc = pdflib.load_buffer(data.clone(), None).unwrap();
 
             println!("file loaded");
+
+            let title = doc.metadata()
+                .get(pdfium::doc::MetadataTag::Title)
+                .unwrap()
+                .unwrap_or_else(|| "Untitled Document".into());
+
+            let path = file.path().unwrap();
+            let subtitle = path.file_name().unwrap().to_string_lossy();
+
+            win.window_title.set_title(&title);
+            win.window_title.set_subtitle(&subtitle);
+
             win.canvas().set_document(doc);
             win.viewport().set_offset_and_scale(vector![0.0, 0.0], 1.0);
             win.viewport().fit_width();
         }));
+    }
+
+    pub fn close_file(&self) {
+        self.canvas().clear();
+        self.window_title.set_title("PDF Annotator Prototype");
+        self.window_title.set_subtitle("No Document Selected");
     }
 }
 
@@ -128,7 +149,7 @@ impl ObjectImpl for AppWindow {
 
         let action_doc_close = SimpleAction::new("document-close", None);
         action_doc_close.connect_activate(clone!(@weak self as win => move |_, _| {
-            win.canvas().clear();
+            win.close_file();
         }));
 
         self.obj().add_action(&action_doc_open);
