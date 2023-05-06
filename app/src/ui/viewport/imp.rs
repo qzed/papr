@@ -14,9 +14,9 @@ use gtk::{
             WidgetClassSubclassExt, WidgetImpl,
         },
     },
-    traits::{EventControllerExt, GestureDragExt, GestureExt, NativeExt, WidgetExt},
-    CompositeTemplate, EventControllerScroll, EventControllerScrollFlags, EventSequenceState,
-    GestureDrag, GestureZoom, Inhibit, PropagationPhase, TemplateChild,
+    traits::{AdjustmentExt, EventControllerExt, GestureDragExt, GestureExt, NativeExt, WidgetExt},
+    CompositeTemplate, EventControllerScroll, EventControllerScrollFlags,
+    EventSequenceState, GestureDrag, GestureZoom, Inhibit, PropagationPhase, TemplateChild,
 };
 use nalgebra::{vector, Vector2};
 
@@ -122,6 +122,13 @@ impl ViewportWidget {
 
         self.set_canvas_offset_and_scale(offset, scale);
     }
+
+    pub fn focus_canvas(&self) -> bool {
+        match self.scroller.child() {
+            Some(canvas) => canvas.grab_focus(),
+            None => self.scroller.grab_focus(),
+        }
+    }
 }
 
 impl Default for ViewportWidget {
@@ -166,6 +173,7 @@ impl ObjectImpl for ViewportWidget {
 
             ctrl.connect_drag_begin(clone!(@strong drag_start, @weak obj => move |_, _, _| {
                 let vp = obj.imp();
+                vp.focus_canvas();
                 drag_start.set(vp.canvas_offset().unwrap_or_default());
             }));
 
@@ -266,6 +274,7 @@ impl ObjectImpl for ViewportWidget {
                     ctrl.set_state(EventSequenceState::Claimed);
 
                     let vp = obj.imp();
+                    vp.scroller.grab_focus();
 
                     // initial fixpoint in screen coordinates (gesture center)
                     let center = ctrl
@@ -337,6 +346,19 @@ impl ObjectImpl for ViewportWidget {
             });
 
             self.scroller.add_controller(ctrl);
+        }
+
+        {
+            let ctrl = gtk::GestureClick::builder()
+                .name("left_click_controller")
+                .propagation_phase(PropagationPhase::Bubble)
+                .build();
+
+            ctrl.connect_pressed(clone!(@weak obj => move |_gesture, _n, _x, _y| {
+                obj.imp().focus_canvas();
+            }));
+
+            obj.add_controller(ctrl);
         }
     }
 

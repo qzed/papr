@@ -8,7 +8,7 @@ use gtk::{
     graphene,
     prelude::{ObjectExt, ParamSpecBuilderExt, ToValue},
     subclass::{
-        prelude::{ObjectImpl, ObjectSubclass, ObjectSubclassExt, ObjectSubclassIsExt},
+        prelude::{ObjectImpl, ObjectSubclass, ObjectSubclassExt, ObjectSubclassIsExt, ObjectImplExt},
         scrollable::ScrollableImpl,
         widget::WidgetImpl,
     },
@@ -173,6 +173,7 @@ impl CanvasWidget {
 
         *self.data.borrow_mut() = Some(data);
         self.obj().queue_allocate();
+        self.obj().grab_focus();
     }
 
     pub fn clear(&self) {
@@ -323,6 +324,13 @@ impl ObjectSubclass for CanvasWidget {
 }
 
 impl ObjectImpl for CanvasWidget {
+    fn constructed(&self) {
+        self.parent_constructed();
+
+        self.obj().set_focusable(true);
+        self.obj().set_can_focus(true);
+    }
+
     fn properties() -> &'static [ParamSpec] {
         static PROPERTIES: Lazy<Vec<ParamSpec>> = Lazy::new(|| {
             vec![
