@@ -141,7 +141,7 @@ impl CanvasWidget {
     }
 
     fn scale_bounds(&self) -> (f64, f64) {
-        (1e-2, 1e4)
+        (1e-2, 5e3)
     }
 
     pub fn set_document(&self, doc: Document) {
