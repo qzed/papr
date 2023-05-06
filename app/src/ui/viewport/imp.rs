@@ -15,7 +15,7 @@ use gtk::{
         },
     },
     traits::{AdjustmentExt, EventControllerExt, GestureDragExt, GestureExt, NativeExt, WidgetExt},
-    CompositeTemplate, EventControllerScroll, EventControllerScrollFlags,
+    CompositeTemplate, EventControllerKey, EventControllerScroll, EventControllerScrollFlags,
     EventSequenceState, GestureDrag, GestureZoom, Inhibit, PropagationPhase, TemplateChild,
 };
 use nalgebra::{vector, Vector2};
@@ -141,6 +141,11 @@ impl ViewportWidget {
 
         // update properties
         self.set_canvas_offset_and_scale(offset, scale);
+    }
+
+    pub fn canvas_zoom_centered(&self, step: f64) {
+        let size = vector![self.scroller.width() as _, self.scroller.height() as _];
+        self.canvas_zoom_with_focus(size / 2.0, step);
     }
 
     pub fn focus_canvas(&self) -> bool {
@@ -351,6 +356,55 @@ impl ObjectImpl for ViewportWidget {
             });
 
             self.scroller.add_controller(ctrl);
+        }
+
+        {
+            let ctrl = EventControllerKey::builder()
+                .name("key_controller")
+                .propagation_phase(PropagationPhase::Bubble)
+                .build();
+
+            ctrl.connect_key_pressed(clone!(@weak obj => @default-return Inhibit(false),
+                move |_ctrl, key, _keycode, _modif| {
+                    if key == gdk::Key::Up {
+                        // TODO: snap to next page start as alternative mode
+                        let vadj = obj.imp().scroller.vadjustment();
+                        vadj.set_value(vadj.value() - vadj.step_increment());
+                        Inhibit(true)
+                    } else if key == gdk::Key::Down {
+                        // TODO: snap to next page start as alternative mode
+                        let vadj = obj.imp().scroller.vadjustment();
+                        vadj.set_value(vadj.value() + vadj.step_increment());
+                        Inhibit(true)
+                    } else if key == gdk::Key::Left {
+                        // TODO: snap to next page start as alternative mode
+                        let hadj = obj.imp().scroller.hadjustment();
+                        hadj.set_value(hadj.value() - hadj.step_increment());
+                        Inhibit(true)
+                    } else if key == gdk::Key::Right {
+                        // TODO: snap to next page start as alternative mode
+                        let hadj = obj.imp().scroller.hadjustment();
+                        hadj.set_value(hadj.value() + hadj.step_increment());
+                        Inhibit(true)
+                    } else if key == gdk::Key::minus {
+                        let vp = obj.imp();
+                        vp.canvas_zoom_centered(-vp.scale_step);
+                        Inhibit(true)
+                    } else if key == gdk::Key::plus {
+                        let vp = obj.imp();
+                        vp.canvas_zoom_centered(vp.scale_step);
+                        Inhibit(true)
+                    } else if key == gdk::Key::c {
+                        obj.imp().set_canvas_offset(vector![0.0, 0.0]);
+                        obj.imp().canvas_fit_width();
+                        Inhibit(true)
+                    } else {
+                        Inhibit(false)
+                    }
+                }
+            ));
+
+            obj.add_controller(ctrl);
         }
 
         {
