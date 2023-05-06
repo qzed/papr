@@ -1,9 +1,11 @@
 use std::{cell::Cell, rc::Rc};
 
 use gtk::{
-    gdk,
-    glib::{self, clone},
-    prelude::{Cast, DisplayExt, ObjectExt, SeatExt, SurfaceExt},
+    gdk::{self, Key, ModifierType},
+    glib::{
+        self, clone, closure_local, once_cell::sync::Lazy, subclass::Signal,
+    },
+    prelude::{Cast, DisplayExt, ObjectExt, SeatExt, StaticType, SurfaceExt},
     subclass::{
         prelude::{
             BuildableImpl, BuildableImplExt, ObjectImpl, ObjectImplExt, ObjectSubclass,
@@ -14,9 +16,10 @@ use gtk::{
             WidgetClassSubclassExt, WidgetImpl,
         },
     },
-    traits::{AdjustmentExt, EventControllerExt, GestureDragExt, GestureExt, NativeExt, WidgetExt},
-    CompositeTemplate, EventControllerKey, EventControllerScroll, EventControllerScrollFlags,
-    EventSequenceState, GestureDrag, GestureZoom, Inhibit, PropagationPhase, TemplateChild,
+    traits::{EventControllerExt, GestureDragExt, GestureExt, NativeExt, WidgetExt},
+    CompositeTemplate, EventControllerScroll, EventControllerScrollFlags,
+    EventSequenceState, GestureDrag, GestureZoom, Inhibit, PropagationPhase, ScrollType,
+    TemplateChild,
 };
 use nalgebra::{vector, Vector2};
 
@@ -172,6 +175,48 @@ impl ObjectSubclass for ViewportWidget {
     fn class_init(klass: &mut Self::Class) {
         klass.bind_template();
         klass.set_layout_manager_type::<gtk::BinLayout>();
+
+        klass.add_binding_signal(
+            Key::Up,
+            ModifierType::empty(),
+            "scroll",
+            Some(&(gtk::ffi::GTK_SCROLL_STEP_UP,).into()),
+        );
+
+        klass.add_binding_signal(
+            Key::Down,
+            ModifierType::empty(),
+            "scroll",
+            Some(&(gtk::ffi::GTK_SCROLL_STEP_DOWN,).into()),
+        );
+
+        klass.add_binding_signal(
+            Key::Left,
+            ModifierType::empty(),
+            "scroll",
+            Some(&(gtk::ffi::GTK_SCROLL_STEP_LEFT,).into()),
+        );
+
+        klass.add_binding_signal(
+            Key::Right,
+            ModifierType::empty(),
+            "scroll",
+            Some(&(gtk::ffi::GTK_SCROLL_STEP_RIGHT,).into()),
+        );
+
+        klass.add_binding_signal(
+            Key::plus,
+            ModifierType::empty(),
+            "zoom",
+            Some(&(0.1,).into()),
+        );
+
+        klass.add_binding_signal(
+            Key::minus,
+            ModifierType::empty(),
+            "zoom",
+            Some(&(-0.1,).into()),
+        );
     }
 
     fn instance_init(obj: &glib::subclass::InitializingObject<Self>) {
@@ -359,55 +404,6 @@ impl ObjectImpl for ViewportWidget {
         }
 
         {
-            let ctrl = EventControllerKey::builder()
-                .name("key_controller")
-                .propagation_phase(PropagationPhase::Bubble)
-                .build();
-
-            ctrl.connect_key_pressed(clone!(@weak obj => @default-return Inhibit(false),
-                move |_ctrl, key, _keycode, _modif| {
-                    if key == gdk::Key::Up {
-                        // TODO: snap to next page start as alternative mode
-                        let vadj = obj.imp().scroller.vadjustment();
-                        vadj.set_value(vadj.value() - vadj.step_increment());
-                        Inhibit(true)
-                    } else if key == gdk::Key::Down {
-                        // TODO: snap to next page start as alternative mode
-                        let vadj = obj.imp().scroller.vadjustment();
-                        vadj.set_value(vadj.value() + vadj.step_increment());
-                        Inhibit(true)
-                    } else if key == gdk::Key::Left {
-                        // TODO: snap to next page start as alternative mode
-                        let hadj = obj.imp().scroller.hadjustment();
-                        hadj.set_value(hadj.value() - hadj.step_increment());
-                        Inhibit(true)
-                    } else if key == gdk::Key::Right {
-                        // TODO: snap to next page start as alternative mode
-                        let hadj = obj.imp().scroller.hadjustment();
-                        hadj.set_value(hadj.value() + hadj.step_increment());
-                        Inhibit(true)
-                    } else if key == gdk::Key::minus {
-                        let vp = obj.imp();
-                        vp.canvas_zoom_centered(-vp.scale_step);
-                        Inhibit(true)
-                    } else if key == gdk::Key::plus {
-                        let vp = obj.imp();
-                        vp.canvas_zoom_centered(vp.scale_step);
-                        Inhibit(true)
-                    } else if key == gdk::Key::c {
-                        obj.imp().set_canvas_offset(vector![0.0, 0.0]);
-                        obj.imp().canvas_fit_width();
-                        Inhibit(true)
-                    } else {
-                        Inhibit(false)
-                    }
-                }
-            ));
-
-            obj.add_controller(ctrl);
-        }
-
-        {
             let ctrl = gtk::GestureClick::builder()
                 .name("left_click_controller")
                 .propagation_phase(PropagationPhase::Bubble)
@@ -419,10 +415,57 @@ impl ObjectImpl for ViewportWidget {
 
             obj.add_controller(ctrl);
         }
+
+        obj.connect_closure(
+            "scroll",
+            false,
+            closure_local!(move |vp: super::ViewportWidget, ty: ScrollType| -> bool {
+                let horizontal = match ty {
+                    ScrollType::StepUp => false,
+                    ScrollType::StepDown => false,
+                    ScrollType::StepLeft => true,
+                    ScrollType::StepRight => true,
+                    ScrollType::PageUp => false,
+                    ScrollType::PageDown => false,
+                    ScrollType::PageLeft => true,
+                    ScrollType::PageRight => true,
+                    _ => panic!("unsupported scroll-type {:?}", ty),
+                };
+
+                vp.imp().scroller.emit_by_name("scroll-child", &[&ty, &horizontal])
+            }),
+        );
+
+        obj.connect_closure(
+            "zoom",
+            false,
+            closure_local!(move |vp: super::ViewportWidget, step: f64| -> () {
+                vp.imp().canvas_zoom_centered(step)
+            }),
+        );
     }
 
     fn dispose(&self) {
         self.dispose_template();
+    }
+
+    fn signals() -> &'static [glib::subclass::Signal] {
+        static SIGNALS: Lazy<Vec<Signal>> = Lazy::new(|| {
+            vec![
+                Signal::builder("scroll")
+                    .action()
+                    .run_last()
+                    .return_type::<bool>()
+                    .param_types([ScrollType::static_type()])
+                    .build(),
+                Signal::builder("zoom")
+                    .action()
+                    .run_last()
+                    .param_types([f64::static_type()])
+                    .build(),
+            ]
+        });
+        SIGNALS.as_ref()
     }
 }
 
