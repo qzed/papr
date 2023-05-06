@@ -123,6 +123,26 @@ impl ViewportWidget {
         self.set_canvas_offset_and_scale(offset, scale);
     }
 
+    pub fn canvas_zoom_with_focus(&self, focal_point: Vector2<f64>, step: f64) {
+        // offset of the viewport in screen units
+        let offset = self.canvas_offset().unwrap_or_default();
+        let scale = self.canvas_scale().unwrap_or(1.0);
+        let (scale_min, scale_max) = self.canvas_scale_bounds().unwrap_or((1.0, 1.0));
+
+        // calculate fixpoint in document coordinates
+        let fixp_doc = (offset + focal_point) / scale;
+
+        // calculate new scale value
+        let scale = scale * (1.0 + step);
+        let scale = scale.clamp(scale_min, scale_max);
+
+        // calculate new viewport offset from fixpoint document coordinates
+        let offset = fixp_doc * scale - focal_point;
+
+        // update properties
+        self.set_canvas_offset_and_scale(offset, scale);
+    }
+
     pub fn focus_canvas(&self) -> bool {
         match self.scroller.child() {
             Some(canvas) => canvas.grab_focus(),
@@ -226,25 +246,10 @@ impl ObjectImpl for ViewportWidget {
                             .unwrap();
 
                         // fixpoint in screen units: this is what we zoom in/out on
-                        let fixp_screen = vector![pos_wdg.0, pos_wdg.1];
+                        let focal_point = vector![pos_wdg.0, pos_wdg.1];
 
-                        // offset of the viewport in screen units
-                        let offset = vp.canvas_offset().unwrap_or_default();
-                        let scale = vp.canvas_scale().unwrap_or(1.0);
-                        let (scale_min, scale_max) = vp.canvas_scale_bounds().unwrap_or((1.0, 1.0));
-
-                        // calculate fixpoint in document coordinates
-                        let fixp_doc = (offset + fixp_screen) / scale;
-
-                        // calculate new scale value
-                        let scale = scale * (1.0 - dy * vp.scale_step);
-                        let scale = scale.clamp(scale_min, scale_max);
-
-                        // calculate new viewport offset from fixpoint document coordinates
-                        let offset = fixp_doc * scale - fixp_screen;
-
-                        // update properties
-                        vp.set_canvas_offset_and_scale(offset, scale);
+                        // perform zoom
+                        vp.canvas_zoom_with_focus(focal_point, -dy * vp.scale_step);
 
                         Inhibit(true)
                     } else {
