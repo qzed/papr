@@ -10,12 +10,13 @@ env_logger = "0.10.0"
 executor = { version = "0.1.0", path = "../executor" }
 gtk = {version = "0.6.2", package = "gtk4", features = ["xml_validation", "v4_8"]}
 itertools = "0.10.5"
-log = "0.4.17"
 nalgebra = "0.32.2"
 num-traits = "0.2.15"
 num_enum = "0.6.1"
 pdfium = { path = "../pdfium" }
 simba = "0.8.0"
+tracing = "0.1.37"
+tracing-subscriber = "0.3.17"
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = "0.5"

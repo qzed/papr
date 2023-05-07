@@ -47,7 +47,7 @@ impl AppWindow {
 
     pub fn open_file(&self, file: File) {
         glib::MainContext::default().spawn_local(clone!(@weak self as win => async move {
-            println!("loading file: {:?}", file.path().unwrap());
+            tracing::info!(file=?file.path().unwrap(), "loading file");
 
             // TODO: handle errors
             let (data, _etag) = file.load_bytes_future().await.expect("failed to load file");
@@ -64,8 +64,6 @@ impl AppWindow {
 
             let doc = pdflib.load_buffer(data, None).unwrap();
 
-            println!("file loaded");
-
             let title = doc.metadata()
                 .get(pdfium::doc::MetadataTag::Title)
                 .unwrap()
@@ -73,6 +71,8 @@ impl AppWindow {
 
             let path = file.path().unwrap();
             let subtitle = path.file_name().unwrap().to_string_lossy();
+
+            tracing::info!(file=?file.path().unwrap(), title, "file loaded");
 
             win.window_title.set_title(&title);
             win.window_title.set_subtitle(&subtitle);

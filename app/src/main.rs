@@ -12,8 +12,10 @@ mod types;
 mod ui;
 
 fn main() -> glib::ExitCode {
-    env_logger::init();
+    // set up logging
+    tracing_subscriber::fmt::init();
 
+    // run application
     let app = ui::app::App::new();
     app.run()
 }
