@@ -76,6 +76,7 @@ impl AppWindow {
 
             tracing::info!(file=?path, "loading file");
 
+            // load file to buffer
             let result = file.load_bytes_future().await;
             let (data, _etag) = match result {
                 Ok(res) => res,
@@ -91,6 +92,7 @@ impl AppWindow {
 
             let data = data.to_vec();
 
+            // load pdfium library
             let pdflib = match win.pdflib() {
                 Ok(pdflib) => pdflib,
                 Err(_) => {
@@ -109,6 +111,7 @@ impl AppWindow {
                 }
             };
 
+            // parse document
             let result = pdflib.load_buffer(data, None);
             let doc = match result {
                 Ok(doc) => doc,
@@ -122,6 +125,7 @@ impl AppWindow {
                 },
             };
 
+            // get metadata for titlebar
             let title = doc.metadata()
                 .get(pdfium::doc::MetadataTag::Title)
                 .unwrap()
@@ -134,12 +138,14 @@ impl AppWindow {
             win.window_title.set_title(&title);
             win.window_title.set_subtitle(&filename);
 
+            // update canvas
             win.canvas().set_document(doc);
             win.viewport().set_offset_and_scale(vector![0.0, 0.0], 1.0);
             win.viewport().fit_width();
 
             tracing::info!(file=?path, title, "file loaded");
 
+            // notify user
             let toast = adw::Toast::new(&format!("File loaded: \"{}\"", filename));
             win.overlay.add_toast(toast);
         }));
