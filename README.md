@@ -1,8 +1,11 @@
 # PDF Annotator Prototype
 
 _Work in progress._
-Can view PDFs, but not annotate them yet.
-May also still be quite inefficient and unoptimized.
+
+## Status:
+
+- A very basic PDF viewer.
+  Can open and render PDFs, but does not yet allow for any kind of interaction beyond that.
 
 ## Goal
 
