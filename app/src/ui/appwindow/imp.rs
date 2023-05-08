@@ -179,20 +179,26 @@ impl ObjectImpl for AppWindow {
 
         let action_doc_open = SimpleAction::new("document-open", None);
         action_doc_open.connect_activate(clone!(@weak self as win => move |_, _| {
-            let filter = FileFilter::new();
-            filter.add_mime_type("application/pdf");
-            filter.add_suffix("pdf");
-            filter.set_name(Some("PDF Documents"));
+            let filter_pdf = FileFilter::new();
+            filter_pdf.add_mime_type("application/pdf");
+            filter_pdf.add_suffix("pdf");
+            filter_pdf.set_name(Some("PDF Documents"));
+
+            let filter_all = FileFilter::new();
+            filter_all.set_name(Some("All Files"));
+            filter_all.add_mime_type("*/*");
+            filter_all.add_suffix("*");
 
             let filters = ListStore::new(FileFilter::static_type());
-            filters.append(&filter);
+            filters.append(&filter_pdf);
+            filters.append(&filter_all);
 
             let filechooser = FileDialog::builder()
                 .title("Open Document")
                 .modal(true)
                 .accept_label("Open")
                 .filters(&filters)
-                .default_filter(&filter)
+                .default_filter(&filter_pdf)
                 .build();
 
             filechooser.open(
