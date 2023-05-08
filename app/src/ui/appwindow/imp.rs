@@ -44,6 +44,32 @@ impl AppWindow {
         &self.canvas
     }
 
+    fn pdflib(&self) -> Result<pdfium::Library, pdfium::Error> {
+        let lib = self.pdflib.borrow().clone();
+        let lib = match lib {
+            Some(lib) => lib,
+            None => {
+                tracing::debug!("loading libpdfium");
+
+                let res = pdfium::Library::init();
+                let lib = match res {
+                    Ok(lib) => lib,
+                    Err(err) => {
+                        tracing::error!(error=%err, "failed to load libpdfium");
+                        return Err(err);
+                    }
+                };
+
+                tracing::debug!("libpdfium loaded successfully");
+
+                *self.pdflib.borrow_mut() = Some(lib.clone());
+                lib
+            }
+        };
+
+        Ok(lib)
+    }
+
     pub fn open_file(&self, file: File) {
         glib::MainContext::default().spawn_local(clone!(@weak self as win => async move {
             let path = file.path().unwrap_or_default();
@@ -65,37 +91,21 @@ impl AppWindow {
 
             let data = data.to_vec();
 
-            let pdflib = win.pdflib.borrow().clone();
-            let pdflib = match pdflib {
-                Some(pdflib) => pdflib,
-                None => {
-                    tracing::debug!("loading libpdfium");
+            let pdflib = match win.pdflib() {
+                Ok(pdflib) => pdflib,
+                Err(_) => {
+                    let dialog = gtk::AlertDialog::builder()
+                        .message("Error loading pdfium")
+                        .detail(
+                            "Failed to load shared libraries for pdfium. \
+                            Please ensure that the pdfium library is installed."
+                        )
+                        .build();
 
-                    let res = pdfium::Library::init();
-                    let lib = match res {
-                        Ok(lib) => lib,
-                        Err(err) => {
-                            tracing::error!(error=%err, "failed to load libpdfium");
+                    let _ = dialog.choose_future(Some(&*win.obj())).await;
 
-                            let dialog = gtk::AlertDialog::builder()
-                                .message("Error loading pdfium")
-                                .detail(
-                                    "Failed to load shared libraries for pdfium. \
-                                    Please ensure that the pdfium library is installed."
-                                )
-                                .build();
-
-                            let _ = dialog.choose_future(Some(&*win.obj())).await;
-
-                            win.obj().destroy();
-                            return;
-                        }
-                    };
-
-                    tracing::debug!("libpdfium loaded successfully");
-
-                    *win.pdflib.borrow_mut() = Some(lib.clone());
-                    lib
+                    win.obj().destroy();
+                    return;
                 }
             };
 
