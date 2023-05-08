@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 
 use adw::subclass::prelude::AdwApplicationWindowImpl;
-use gtk::gio::{File, SimpleAction, ListStore};
+use gtk::gio::{File, ListStore, SimpleAction};
 use gtk::glib::clone;
 use gtk::glib::subclass::InitializingObject;
 use gtk::prelude::{ActionMapExt, FileExt, StaticType};
@@ -10,6 +10,7 @@ use gtk::subclass::prelude::{
     ObjectImplExt, ObjectSubclass, ObjectSubclassExt, WidgetImpl, WindowImpl,
 };
 use gtk::subclass::widget::WidgetClassSubclassExt;
+use gtk::traits::GtkWindowExt;
 use gtk::{glib, CompositeTemplate, FileDialog, FileFilter, TemplateChild};
 use nalgebra::vector;
 
@@ -68,7 +69,32 @@ impl AppWindow {
             let pdflib = match pdflib.as_ref() {
                 Some(pdflib) => pdflib,
                 None => {
-                    *pdflib = Some(pdfium::Library::init().unwrap());
+                    tracing::debug!("loading libpdfium");
+
+                    let res = pdfium::Library::init();
+                    let lib = match res {
+                        Ok(lib) => lib,
+                        Err(err) => {
+                            tracing::error!(error=%err, "failed to load libpdfium");
+
+                            let dialog = gtk::AlertDialog::builder()
+                                .message("Error loading pdfium")
+                                .detail(
+                                    "Failed to load shared libraries for pdfium. \
+                                    Please ensure that the pdfium library is installed."
+                                )
+                                .build();
+
+                            let _ = dialog.choose_future(Some(&*win.obj())).await;
+
+                            win.obj().destroy();
+                            return;
+                        }
+                    };
+
+                    tracing::debug!("libpdfium loaded successfully");
+
+                    *pdflib = Some(lib);
                     pdflib.as_ref().unwrap()
                 }
             };
