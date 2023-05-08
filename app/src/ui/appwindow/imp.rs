@@ -80,7 +80,7 @@ impl AppWindow {
             let (data, _etag) = match result {
                 Ok(res) => res,
                 Err(err) => {
-                    tracing::info!(file=?path, error=?err.message(), "failed to load file");
+                    tracing::warn!(file=?path, error=?err.message(), "failed to load file");
 
                     let toast = adw::Toast::new(&format!("{err}"));
                     toast.set_priority(adw::ToastPriority::High);
@@ -113,7 +113,7 @@ impl AppWindow {
             let doc = match result {
                 Ok(doc) => doc,
                 Err(err) => {
-                    tracing::info!(file=?path, error=%err, "failed to parse document");
+                    tracing::warn!(file=?path, error=%err, "failed to parse document");
 
                     let toast = adw::Toast::new(&format!("Error: {err}"));
                     toast.set_priority(adw::ToastPriority::High);
