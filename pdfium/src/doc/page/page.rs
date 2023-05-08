@@ -210,7 +210,7 @@ impl Page {
         bitmap: &mut Bitmap<C>,
         layout: &PageRenderLayout,
         flags: RenderFlags,
-    ) -> Result<()> {
+    ) {
         let page = self.handle().get();
         let bitmap = bitmap.handle().get();
 
@@ -226,7 +226,6 @@ impl Page {
                 flags.bits() as _,
             )
         };
-        self.library().assert_status()
     }
 
     /// Render this page to a bitmap, using the specified transformation and options.
@@ -268,7 +267,7 @@ impl Page {
         transform: &Affine2<f32>,
         clip: &Rect,
         flags: RenderFlags,
-    ) -> Result<()> {
+    ) {
         let page = self.handle().get();
         let bitmap = bitmap.handle().get();
         let matrix = crate::types::affine_to_pdfmatrix(transform);
@@ -283,7 +282,6 @@ impl Page {
                 flags.bits() as _,
             )
         };
-        self.library().assert_status()
     }
 
     /// Render this page to a bitmap, progressively.

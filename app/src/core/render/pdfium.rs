@@ -184,7 +184,7 @@ fn render_page_rect(
     };
 
     // render page to bitmap
-    page.render(&mut bmp, &layout, opts.flags)?;
+    page.render(&mut bmp, &layout, opts.flags);
 
     // drop the wrapping bitmap
     drop(bmp);

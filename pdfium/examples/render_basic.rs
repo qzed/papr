@@ -38,7 +38,7 @@ fn main() -> Result<()> {
             rotate: PageRotation::None,
         };
 
-        page.render(&mut bmp, &layout, flags)?;
+        page.render(&mut bmp, &layout, flags);
 
         // Save the file
         let img = image::ImageBuffer::from_raw(width, height, bmp.buf().to_owned()).unwrap();
