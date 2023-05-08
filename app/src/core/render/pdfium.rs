@@ -140,7 +140,7 @@ where
             };
 
             // render page to buffer
-            let bmp = render_page_rect(&page, &page_size, &rect, &opts).unwrap();
+            let bmp = render_page_rect(&page, &page_size, &rect, &opts);
 
             // create return value
             factory.create(bmp)
@@ -158,7 +158,7 @@ fn render_page_rect(
     page_size: &Vector2<i64>,
     rect: &Rect<i64>,
     opts: &RenderOptions,
-) -> pdfium::Result<Bitmap> {
+) -> Bitmap {
     // allocate tile bitmap buffer
     let stride = rect.size.x as usize * 3;
     let mut buffer = vec![0; stride * rect.size.y as usize];
@@ -171,7 +171,7 @@ fn render_page_rect(
         BitmapFormat::Bgr,
         &mut buffer[..],
         stride as _,
-    )?;
+    ).unwrap();
 
     // clear bitmap with background color
     bmp.fill_rect(0, 0, rect.size.x as _, rect.size.y as _, opts.background);
@@ -190,11 +190,9 @@ fn render_page_rect(
     drop(bmp);
 
     // construct bitmap
-    let bmp = Bitmap {
+    Bitmap {
         buffer: buffer.into_boxed_slice(),
         size: na::convert_unchecked(rect.size),
         stride: stride as _,
-    };
-
-    Ok(bmp)
+    }
 }
