@@ -65,8 +65,8 @@ impl AppWindow {
 
             let data = data.to_vec();
 
-            let mut pdflib = win.pdflib.borrow_mut();
-            let pdflib = match pdflib.as_ref() {
+            let pdflib = win.pdflib.borrow().clone();
+            let pdflib = match pdflib {
                 Some(pdflib) => pdflib,
                 None => {
                     tracing::debug!("loading libpdfium");
@@ -94,8 +94,8 @@ impl AppWindow {
 
                     tracing::debug!("libpdfium loaded successfully");
 
-                    *pdflib = Some(lib);
-                    pdflib.as_ref().unwrap()
+                    *win.pdflib.borrow_mut() = Some(lib.clone());
+                    lib
                 }
             };
 
