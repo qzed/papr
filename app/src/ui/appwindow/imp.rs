@@ -99,7 +99,18 @@ impl AppWindow {
                 }
             };
 
-            let doc = pdflib.load_buffer(data, None).unwrap();
+            let result = pdflib.load_buffer(data, None);
+            let doc = match result {
+                Ok(doc) => doc,
+                Err(err) => {
+                    tracing::info!(file=?path, error=%err, "failed to parse document");
+
+                    let toast = adw::Toast::new(&format!("Error: {err}"));
+                    toast.set_priority(adw::ToastPriority::High);
+                    win.overlay.add_toast(toast);
+                    return;
+                },
+            };
 
             let title = doc.metadata()
                 .get(pdfium::doc::MetadataTag::Title)
