@@ -439,7 +439,7 @@ impl ObjectImpl for ViewportWidget {
         obj.connect_closure(
             "zoom",
             false,
-            closure_local!(move |vp: super::ViewportWidget, step: f64| -> () {
+            closure_local!(move |vp: super::ViewportWidget, step: f64| {
                 vp.imp().canvas_zoom_centered(step)
             }),
         );

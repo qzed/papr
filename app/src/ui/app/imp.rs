@@ -43,7 +43,7 @@ impl ApplicationImpl for App {
 
     fn activate(&self) {
         self.parent_activate();
-        self.new_appwindow().show();
+        self.new_appwindow().set_visible(true);
     }
 
     fn open(&self, files: &[gio::File], hint: &str) {
@@ -54,7 +54,7 @@ impl ApplicationImpl for App {
             window.downcast().unwrap()
         } else {
             let window = self.new_appwindow();
-            window.show();
+            window.set_visible(true);
             window
         };
 

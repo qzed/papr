@@ -1,20 +1,16 @@
 use std::cell::RefCell;
 
 use adw::subclass::prelude::AdwApplicationWindowImpl;
-use gtk::gio::{File, SimpleAction};
+use gtk::gio::{File, SimpleAction, ListStore};
 use gtk::glib::clone;
 use gtk::glib::subclass::InitializingObject;
-use gtk::prelude::{ActionMapExt, FileExt};
+use gtk::prelude::{ActionMapExt, FileExt, StaticType};
 use gtk::subclass::prelude::{
     ApplicationWindowImpl, CompositeTemplateClass, CompositeTemplateInitializingExt, ObjectImpl,
     ObjectImplExt, ObjectSubclass, ObjectSubclassExt, WidgetImpl, WindowImpl,
 };
 use gtk::subclass::widget::WidgetClassSubclassExt;
-use gtk::traits::{FileChooserExt, NativeDialogExt};
-use gtk::{
-    glib, CompositeTemplate, FileChooserAction, FileChooserNative, FileFilter, ResponseType,
-    TemplateChild,
-};
+use gtk::{glib, CompositeTemplate, FileDialog, FileFilter, TemplateChild};
 use nalgebra::vector;
 
 use crate::ui::canvas::CanvasWidget;
@@ -23,6 +19,9 @@ use crate::ui::viewport::ViewportWidget;
 #[derive(CompositeTemplate, Default)]
 #[template(resource = "/io/mxnluz/papr/ui/appwindow.ui")]
 pub struct AppWindow {
+    #[template_child]
+    overlay: TemplateChild<adw::ToastOverlay>,
+
     #[template_child]
     viewport: TemplateChild<ViewportWidget>,
 
@@ -33,7 +32,6 @@ pub struct AppWindow {
     window_title: TemplateChild<adw::WindowTitle>,
 
     pdflib: RefCell<Option<pdfium::Library>>,
-    filechooser: RefCell<Option<FileChooserNative>>,
 }
 
 impl AppWindow {
@@ -47,10 +45,23 @@ impl AppWindow {
 
     pub fn open_file(&self, file: File) {
         glib::MainContext::default().spawn_local(clone!(@weak self as win => async move {
-            tracing::info!(file=?file.path().unwrap(), "loading file");
+            let path = file.path().unwrap_or_default();
 
-            // TODO: handle errors
-            let (data, _etag) = file.load_bytes_future().await.expect("failed to load file");
+            tracing::info!(file=?path, "loading file");
+
+            let result = file.load_bytes_future().await;
+            let (data, _etag) = match result {
+                Ok(res) => res,
+                Err(err) => {
+                    tracing::info!(file=?path, error=?err.message(), "failed to load file");
+
+                    let toast = adw::Toast::new(&format!("{err}"));
+                    toast.set_priority(adw::ToastPriority::High);
+                    win.overlay.add_toast(toast);
+                    return;
+                },
+            };
+
             let data = data.to_vec();
 
             let mut pdflib = win.pdflib.borrow_mut();
@@ -69,17 +80,21 @@ impl AppWindow {
                 .unwrap()
                 .unwrap_or_else(|| "Untitled Document".into());
 
-            let path = file.path().unwrap();
-            let subtitle = path.file_name().unwrap().to_string_lossy();
-
-            tracing::info!(file=?file.path().unwrap(), title, "file loaded");
+            let filename = path.file_name()
+                .unwrap_or_default()
+                .to_string_lossy();
 
             win.window_title.set_title(&title);
-            win.window_title.set_subtitle(&subtitle);
+            win.window_title.set_subtitle(&filename);
 
             win.canvas().set_document(doc);
             win.viewport().set_offset_and_scale(vector![0.0, 0.0], 1.0);
             win.viewport().fit_width();
+
+            tracing::info!(file=?path, title, "file loaded");
+
+            let toast = adw::Toast::new(&format!("File loaded: \"{}\"", filename));
+            win.overlay.add_toast(toast);
         }));
     }
 
@@ -114,34 +129,28 @@ impl ObjectImpl for AppWindow {
             let filter = FileFilter::new();
             filter.add_mime_type("application/pdf");
             filter.add_suffix("pdf");
-            filter.set_name(Some(".pdf"));
+            filter.set_name(Some("PDF Documents"));
 
-            let filechooser = FileChooserNative::builder()
+            let filters = ListStore::new(FileFilter::static_type());
+            filters.append(&filter);
+
+            let filechooser = FileDialog::builder()
                 .title("Open Document")
                 .modal(true)
-                .transient_for(&*win.obj())
                 .accept_label("Open")
-                .cancel_label("Cancel")
-                .action(FileChooserAction::Open)
-                .select_multiple(false)
-                .filter(&filter)
+                .filters(&filters)
+                .default_filter(&filter)
                 .build();
 
-            filechooser.connect_response(clone!(@weak win => move |filechooser, rsptype| {
-                if rsptype == ResponseType::Accept {
-                    if let Some(file) = filechooser.file() {
+            filechooser.open(
+                Some(&*win.obj()),
+                None::<&gtk::gio::Cancellable>,
+                clone!(@weak win => move |result| {
+                    if let Ok(file) = result {
                         win.open_file(file);
-
-                        // drop the filechooser
-                        *win.filechooser.borrow_mut() = None;
                     }
-                }
-            }));
-
-            filechooser.show();
-
-            // need to store filechooser as GTK doesn't keep it around by itself
-            *win.filechooser.borrow_mut() = Some(filechooser);
+                }),
+            );
         }));
 
         let action_doc_close = SimpleAction::new("document-close", None);
